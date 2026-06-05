@@ -1,0 +1,179 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8">
+  <title>SOP/WMS Validación de Carga</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+
+  <link rel="stylesheet" href="style.css">
+
+  <!-- Excel -->
+  <script src="https://cdn.jsdelivr.net/npm/xlsx/dist/xlsx.full.min.js"></script>
+
+  <!-- PDF -->
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
+
+  <!-- Escaneo con cámara: QR y códigos de barras compatibles -->
+  <script src="https://unpkg.com/html5-qrcode"></script>
+</head>
+
+<body>
+
+<div class="app">
+
+  <h1>SOP/WMS</h1>
+  <h2>Validación de Carga vs Pedido</h2>
+
+  <!-- PASO 1 -->
+  <section class="seccion activa" id="pasoExcel">
+    <h3>1. Cargar archivo Excel del pedido</h3>
+
+    <input type="file" id="archivoExcel" accept=".xlsx,.xls">
+
+    <button onclick="leerExcel()">Cargar pedido</button>
+    <button onclick="borrarTodoLocal()">Borrar memoria local</button>
+
+    <div id="resumenExcel" class="resultado"></div>
+    <div id="selectorPedido" class="resultado"></div>
+  </section>
+
+  <!-- PASO 2 -->
+  <section class="seccion" id="pasoDatos">
+    <h3>2. Datos generales</h3>
+
+    <label>Pedido</label>
+    <input type="text" id="pedido" placeholder="Pedido">
+
+    <label>Cliente</label>
+    <input type="text" id="cliente" placeholder="Cliente">
+
+    <label>Chofer</label>
+    <input type="text" id="chofer" placeholder="Nombre del chofer">
+
+    <label>Validador</label>
+    <input type="text" id="validador" placeholder="Nombre del validador">
+
+    <button onclick="validarDatosGenerales()">Continuar a validación</button>
+    <button onclick="verDashboardPedidos()">Dashboard de pedidos</button>
+  </section>
+
+  <!-- PASO 3 -->
+  <section class="seccion" id="pasoValidacion">
+    <h3>3. Validar Tarima</h3>
+
+    <label>Escanear SKU / Código / QR</label>
+    <input
+      type="text"
+      id="skuEscaneado"
+      placeholder="Escanee SKU"
+      autocomplete="off"
+      inputmode="text">
+
+    <button onclick="iniciarEscanerCamara('auto')">Escanear QR / etiqueta completa</button>
+    <button onclick="iniciarEscanerCamara('sku')">Escanear solo SKU</button>
+    <button onclick="detenerEscanerCamara()">Cerrar cámara</button>
+
+    <div id="lectorCamara" style="width:100%; max-width:360px; margin-top:10px;"></div>
+
+    <label>Datos leídos del QR / etiqueta</label>
+    <textarea id="datosLeidosQR" rows="3" placeholder="Aquí aparecerá el contenido leído del QR o código" readonly></textarea>
+
+    <p class="nota">
+      Compatible con pistola Zebra, scanner USB/Bluetooth de computadora y cámara de celular.
+      Si el QR trae SKU, lote, caducidad y cantidad, la app llenará los campos automáticamente.
+      Con scanner físico, coloque el cursor en SKU y escanee; al presionar Enter también se intentará extraer la información.
+    </p>
+
+    <label>Lote</label>
+    <input type="text" id="loteEscaneado" placeholder="Escanee lote" autocomplete="off">
+
+    <label>Caducidad</label>
+    <input type="date" id="caducidadEscaneada">
+
+    <label>Cantidad por tarima</label>
+    <input type="number" id="cantidadTarima" placeholder="Cantidad" min="1">
+
+    <button onclick="limpiarCapturaTarima()">Limpiar captura</button>
+
+    <label>Evidencia 1</label>
+    <input type="file" id="fotoTarima1" accept="image/*">
+
+    <label>Evidencia 2 opcional</label>
+    <input type="file" id="fotoTarima2" accept="image/*">
+
+    <p class="nota">
+      En celular puede tomar foto en vivo o elegir imagen de galería. Máximo 2 fotografías por tarima.
+    </p>
+
+    <button onclick="guardarTarima()">Guardar tarima validada</button>
+    <button onclick="verResumenValidacion()">Resumen del pedido</button>
+    <button onclick="verDashboardPedidos()">Dashboard de pedidos</button>
+    <button onclick="verHistorial()">Historial</button>
+    <button onclick="cerrarPedidoParcial()">Cerrar pedido parcial por faltante</button>
+  </section>
+
+  <!-- PASO 4 -->
+  <section class="seccion" id="pasoAvance">
+    <h3>4. Avance del pedido</h3>
+
+    <div id="avancePedido"></div>
+
+    <button onclick="mostrarSeccion('pasoValidacion')">Validar otra tarima</button>
+    <button onclick="verResumenValidacion()">Ver resumen</button>
+    <button onclick="generarPDF()">Generar PDF</button>
+    <button onclick="cerrarPedidoParcial()">Cerrar pedido parcial por faltante</button>
+    <button onclick="limpiarMemoriaPedido()">Limpiar memoria del pedido</button>
+    <button onclick="verDashboardPedidos()">Dashboard de pedidos</button>
+  </section>
+
+  <!-- RESUMEN -->
+  <section class="seccion" id="pasoResumen">
+    <h3>Resumen de validación</h3>
+
+    <div id="resumenValidacion"></div>
+
+    <button onclick="mostrarSeccion('pasoValidacion')">Regresar</button>
+    <button onclick="generarPDF()">Generar PDF</button>
+    <button onclick="cerrarPedidoParcial()">Cerrar pedido parcial</button>
+    <button onclick="verDashboardPedidos()">Dashboard</button>
+  </section>
+
+  <!-- DASHBOARD -->
+  <section class="seccion" id="pasoDashboard">
+    <h3>Dashboard de pedidos</h3>
+
+    <div id="dashboardPedidos"></div>
+
+    <button onclick="mostrarSeccion('pasoExcel')">Regresar a carga de Excel</button>
+    <button onclick="verHistorial()">Ver historial</button>
+  </section>
+
+  <!-- HISTORIAL -->
+  <section class="seccion" id="pasoHistorial">
+    <h3>Historial de validaciones</h3>
+
+    <label>Buscar pedido o cliente</label>
+    <input type="text" id="buscarHistorial" placeholder="Pedido o Cliente">
+
+    <label>Periodo</label>
+    <select id="filtroPeriodo">
+      <option value="todos">Todos</option>
+      <option value="dia">Hoy</option>
+      <option value="semana">Esta semana</option>
+      <option value="mes">Este mes</option>
+    </select>
+
+    <button onclick="verHistorial()">Buscar</button>
+
+    <div id="historialValidaciones"></div>
+
+    <button onclick="mostrarSeccion('pasoValidacion')">Regresar a validación</button>
+    <button onclick="verDashboardPedidos()">Dashboard</button>
+  </section>
+
+</div>
+
+<script src="script.js"></script>
+
+</body>
+</html>
