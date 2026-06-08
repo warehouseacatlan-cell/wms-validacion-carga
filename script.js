@@ -1333,6 +1333,88 @@ function escaparAtributo(valor) {
     .replace(/"/g, "&quot;");
 }
 
+async function leerEtiquetaOCR() {
+
+  try {
+
+    const input = document.createElement("input");
+    input.type = "file";
+    input.accept = "image/*";
+    input.capture = "environment";
+
+    input.onchange = async function(e) {
+
+      const archivo = e.target.files[0];
+
+      if (!archivo) return;
+
+      alert("Procesando imagen... esto puede tardar unos segundos.");
+
+      const resultado = await Tesseract.recognize(
+        archivo,
+        "spa+eng"
+      );
+
+      const texto = resultado.data.text || "";
+
+      if ($("datosLeidosQR")) {
+        $("datosLeidosQR").value = texto;
+      }
+
+      const lineas = texto.split("\n");
+
+      let sku = "";
+      let lote = "";
+      let cantidad = "";
+      let caducidad = "";
+
+      lineas.forEach(linea => {
+
+        const l = linea.trim();
+
+        if (!sku && /SKU/i.test(l)) {
+          sku = l.replace(/SKU[:# ]*/i, "").trim();
+        }
+
+        if (!lote && /LOTE/i.test(l)) {
+          lote = l.replace(/LOTE[:# ]*/i, "").trim();
+        }
+
+        if (!cantidad && /(KG|SACOS|CANTIDAD)/i.test(l)) {
+          const n = l.match(/\d+/);
+          if (n) cantidad = n[0];
+        }
+
+        if (!caducidad) {
+          const f = l.match(/(\d{2}[\/\-]\d{2}[\/\-]\d{4})/);
+          if (f) caducidad = normalizarFecha(f[1]);
+        }
+
+      });
+
+      if (sku) $("skuEscaneado").value = sku;
+      if (lote) $("loteEscaneado").value = lote;
+      if (cantidad) $("cantidadTarima").value = cantidad;
+      if (caducidad) $("caducidadEscaneada").value = caducidad;
+
+      alert("Lectura OCR terminada.");
+
+    };
+
+    input.click();
+
+  } catch(error) {
+
+    console.error(error);
+
+    alert(
+      "No fue posible leer la etiqueta.\n\n" +
+      "Intenta tomar la foto más cerca y con mejor iluminación."
+    );
+
+  }
+
+}
 document.addEventListener("DOMContentLoaded", async () => {
   await probarConexionSupabase();
   await cargarPedidosDesdeNube();
