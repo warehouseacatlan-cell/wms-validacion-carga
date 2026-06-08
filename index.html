@@ -23,15 +23,20 @@
 
   <h1>SOP/WMS</h1>
   <h2>Validación de Carga vs Pedido</h2>
+  <div id="estadoNube" class="resultado">Conectando con Supabase...</div>
 
   <!-- PASO 1 -->
   <section class="seccion activa" id="pasoExcel">
     <h3>1. Cargar archivo Excel del pedido</h3>
 
-    <input type="file" id="archivoExcel" accept=".xlsx,.xls">
+    <input
+      type="file"
+      id="archivoExcel"
+      accept=".xlsx,.xls,.csv,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet,application/vnd.ms-excel">
 
-    <button onclick="leerExcel()">Cargar pedido</button>
-    <button onclick="borrarTodoLocal()">Borrar memoria local</button>
+    <button onclick="leerExcel()">Cargar Excel y subir a nube</button>
+    <button onclick="cargarPedidosDesdeNube()">Actualizar pedidos desde nube</button>
+    <button onclick="borrarTodoLocal()">Limpiar pantalla local</button>
 
     <div id="resumenExcel" class="resultado"></div>
     <div id="selectorPedido" class="resultado"></div>
@@ -54,7 +59,7 @@
     <input type="text" id="validador" placeholder="Nombre del validador">
 
     <button onclick="validarDatosGenerales()">Continuar a validación</button>
-    <button onclick="verDashboardPedidos()">Dashboard de pedidos</button>
+    <button onclick="verDashboardPedidos()">Dashboard de pedidos en nube</button>
   </section>
 
   <!-- PASO 3 -->
@@ -107,7 +112,7 @@
 
     <button onclick="guardarTarima()">Guardar tarima validada</button>
     <button onclick="verResumenValidacion()">Resumen del pedido</button>
-    <button onclick="verDashboardPedidos()">Dashboard de pedidos</button>
+    <button onclick="verDashboardPedidos()">Dashboard de pedidos en nube</button>
     <button onclick="verHistorial()">Historial</button>
     <button onclick="cerrarPedidoParcial()">Cerrar pedido parcial por faltante</button>
   </section>
@@ -123,7 +128,7 @@
     <button onclick="generarPDF()">Generar PDF</button>
     <button onclick="cerrarPedidoParcial()">Cerrar pedido parcial por faltante</button>
     <button onclick="limpiarMemoriaPedido()">Limpiar memoria del pedido</button>
-    <button onclick="verDashboardPedidos()">Dashboard de pedidos</button>
+    <button onclick="verDashboardPedidos()">Dashboard de pedidos en nube</button>
   </section>
 
   <!-- RESUMEN -->
