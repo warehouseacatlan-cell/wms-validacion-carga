@@ -1,3 +1,10 @@
+// SOP/WMS conectado a Supabase
+// Proyecto: https://zeoybvogcgevzkqalsez.supabase.co
+
+const SUPABASE_URL = "https://zeoybvogcgevzkqalsez.supabase.co";
+const SUPABASE_KEY = "sb_publishable_kTeGf9zhjkyVeCblXhEtVA_oHL4L7da";
+const API_BASE = SUPABASE_URL + "/rest/v1";
+
 let datosExcel = [];
 let pedidoSeleccionado = [];
 let tarimasValidadas = [];
@@ -5,26 +12,81 @@ let cierreParcial = null;
 let lectorCamara = null;
 let escanerActivo = false;
 let modoEscaneoCamara = "auto";
+let pedidoActualId = null;
 
 function $(id) {
   return document.getElementById(id);
+}
+
+function headers(extra = {}) {
+  return {
+    "apikey": SUPABASE_KEY,
+    "Authorization": "Bearer " + SUPABASE_KEY,
+    "Content-Type": "application/json",
+    "Prefer": "return=representation",
+    ...extra
+  };
+}
+
+async function supabaseGet(path) {
+  const res = await fetch(API_BASE + path, { headers: headers() });
+  if (!res.ok) throw new Error(await res.text());
+  return await res.json();
+}
+
+async function supabasePost(table, body) {
+  const res = await fetch(`${API_BASE}/${table}`, {
+    method: "POST",
+    headers: headers(),
+    body: JSON.stringify(body)
+  });
+  if (!res.ok) throw new Error(await res.text());
+  return await res.json();
+}
+
+async function supabasePatch(table, query, body) {
+  const res = await fetch(`${API_BASE}/${table}?${query}`, {
+    method: "PATCH",
+    headers: headers(),
+    body: JSON.stringify(body)
+  });
+  if (!res.ok) throw new Error(await res.text());
+  return await res.json();
+}
+
+async function supabaseDelete(table, query) {
+  const res = await fetch(`${API_BASE}/${table}?${query}`, {
+    method: "DELETE",
+    headers: headers({ "Prefer": "return=minimal" })
+  });
+  if (!res.ok) throw new Error(await res.text());
+}
+
+function mostrarEstadoNube(texto) {
+  const el = $("estadoNube");
+  if (el) el.innerHTML = texto;
+}
+
+async function probarConexionSupabase() {
+  try {
+    await supabaseGet("/pedidos?select=id&limit=1");
+    mostrarEstadoNube("✅ Conectado a Supabase | Datos compartidos entre PC, Zebra y celular");
+  } catch (error) {
+    console.error(error);
+    mostrarEstadoNube("❌ Error conectando a Supabase. Revisa permisos/API Key.");
+  }
 }
 
 function mostrarSeccion(id) {
   document.querySelectorAll(".seccion").forEach(sec => {
     sec.style.display = "none";
   });
-
   const seccion = $(id);
-
-  if (seccion) {
-    seccion.style.display = "block";
-  }
+  if (seccion) seccion.style.display = "block";
 }
 
-function leerExcel() {
+async function leerExcel() {
   const archivo = $("archivoExcel")?.files[0];
-
   if (!archivo) {
     alert("Seleccione un archivo Excel");
     return;
@@ -32,28 +94,33 @@ function leerExcel() {
 
   const reader = new FileReader();
 
-  reader.onload = function(e) {
+  reader.onload = async function(e) {
     try {
       const data = new Uint8Array(e.target.result);
       const workbook = XLSX.read(data, { type: "array" });
       const hoja = workbook.Sheets[workbook.SheetNames[0]];
       const filas = XLSX.utils.sheet_to_json(hoja, { header: 1 });
 
-      procesarExcel(filas);
+      await procesarExcel(filas);
     } catch (error) {
       console.error(error);
       alert("No se pudo leer el Excel. Revise el archivo.");
     }
   };
 
+  reader.onerror = function() {
+    alert("El navegador no pudo abrir el archivo. En celular pruebe Chrome y permita archivos.");
+  };
+
   reader.readAsArrayBuffer(archivo);
 }
 
-function procesarExcel(filas) {
+async function procesarExcel(filas) {
   datosExcel = [];
   pedidoSeleccionado = [];
   tarimasValidadas = [];
   cierreParcial = null;
+  pedidoActualId = null;
 
   let ultimoPedido = "";
   let ultimoCliente = "";
@@ -99,35 +166,112 @@ function procesarExcel(filas) {
   });
 
   datosExcel = consolidarSKUs(datosExcel);
-  mostrarPedidosDetectados();
-  guardarEstado();
+
+  if (datosExcel.length === 0) {
+    alert("No se detectaron pedidos/SKU en el Excel. Revisa el formato del archivo.");
+    return;
+  }
+
+  await subirPedidosASupabase(datosExcel);
+  await cargarPedidosDesdeNube();
+
+  alert("Excel cargado a Supabase. Ya debe verse desde PC, celular y Zebra.");
+}
+
+async function subirPedidosASupabase(lineas) {
+  const pedidosUnicos = [...new Set(lineas.map(x => x.pedido))];
+
+  for (const pedido of pedidosUnicos) {
+    const lineasPedido = lineas.filter(x => x.pedido === pedido);
+    const cliente = lineasPedido[0]?.cliente || "";
+
+    const existentes = await supabaseGet(`/pedidos?pedido=eq.${encodeURIComponent(pedido)}&select=id,pedido`);
+    let pedidoId;
+
+    if (existentes.length > 0) {
+      const confirmar = confirm(`El pedido ${pedido} ya existe en la nube.\n\n¿Quieres reemplazar su detalle?\n\nOJO: esto borra validaciones anteriores de ese pedido.`);
+      if (!confirmar) continue;
+
+      pedidoId = existentes[0].id;
+
+      await supabaseDelete("evidencias", `validacion_id=in.(select id from validaciones where pedido_id=${pedidoId})`).catch(() => {});
+      await supabaseDelete("validaciones", `pedido_id=eq.${pedidoId}`);
+      await supabaseDelete("pedido_detalle", `pedido_id=eq.${pedidoId}`);
+      await supabaseDelete("cierres_parciales", `pedido_id=eq.${pedidoId}`);
+      await supabasePatch("pedidos", `id=eq.${pedidoId}`, {
+        cliente,
+        chofer: null,
+        validador: null,
+        estatus: "PENDIENTE",
+        fecha_cierre: null
+      });
+    } else {
+      const creado = await supabasePost("pedidos", {
+        pedido,
+        cliente,
+        estatus: "PENDIENTE"
+      });
+      pedidoId = creado[0].id;
+    }
+
+    const detalle = lineasPedido.map(x => ({
+      pedido_id: pedidoId,
+      sku: normalizarSKU(x.sku),
+      descripcion: x.descripcion || "",
+      cantidad_pedida: Number(x.cantidadPedida) || 0,
+      cantidad_validada: 0
+    }));
+
+    if (detalle.length > 0) {
+      await supabasePost("pedido_detalle", detalle);
+    }
+  }
+}
+
+async function cargarPedidosDesdeNube() {
+  try {
+    const pedidos = await supabaseGet("/pedidos?select=*&order=fecha_creacion.desc");
+    const detalles = await supabaseGet("/pedido_detalle?select=*");
+
+    datosExcel = detalles.map(d => {
+      const p = pedidos.find(x => x.id === d.pedido_id) || {};
+      return {
+        id: d.id,
+        pedidoId: d.pedido_id,
+        pedido: p.pedido || "",
+        cliente: p.cliente || "",
+        sku: d.sku,
+        descripcion: d.descripcion || "",
+        cantidadPedida: Number(d.cantidad_pedida || 0),
+        cantidadValidada: Number(d.cantidad_validada || 0),
+        estatus: p.estatus || "PENDIENTE"
+      };
+    });
+
+    mostrarPedidosDetectados();
+    mostrarEstadoNube(`✅ Nube actualizada | Pedidos: ${pedidos.length} | SKU: ${detalles.length}`);
+    return pedidos;
+  } catch (error) {
+    console.error(error);
+    alert("No se pudieron cargar pedidos desde Supabase.");
+    return [];
+  }
 }
 
 function convertirCantidad(valor) {
   if (typeof valor === "number") return valor;
-
-  return Number(
-    String(valor)
-      .replace(/,/g, "")
-      .replace(/\s/g, "")
-  ) || 0;
+  return Number(String(valor).replace(/,/g, "").replace(/\s/g, "")) || 0;
 }
 
 function normalizarSKU(valor) {
-  return String(valor || "")
-    .trim()
-    .replace(/^\[/, "")
-    .replace(/\]$/, "")
-    .toUpperCase();
+  return String(valor || "").trim().replace(/^\[/, "").replace(/\]$/, "").toUpperCase();
 }
 
 function extraerSKUDesdeScan(valor) {
   const datos = extraerDatosDesdeTexto(valor);
-
   if (datos.sku) return normalizarSKU(datos.sku);
 
   const texto = String(valor || "").trim();
-
   const entreCorchetes = texto.match(/\[(.*?)\]/);
   if (entreCorchetes) return normalizarSKU(entreCorchetes[1]);
 
@@ -139,22 +283,11 @@ function extraerSKUDesdeScan(valor) {
 
 function extraerDatosDesdeTexto(valor) {
   const textoOriginal = String(valor || "").trim();
-  const datos = {
-    sku: "",
-    lote: "",
-    caducidad: "",
-    cantidad: ""
-  };
-
+  const datos = { sku: "", lote: "", caducidad: "", cantidad: "" };
   if (!textoOriginal) return datos;
 
-  const texto = textoOriginal
-    .replace(/\r/g, "\n")
-    .replace(/\|/g, "\n")
-    .replace(/;/g, "\n")
-    .replace(/,/g, "\n");
+  const texto = textoOriginal.replace(/\r/g, "\n").replace(/\|/g, "\n").replace(/;/g, "\n").replace(/,/g, "\n");
 
-  // 1) QR en formato JSON: {"sku":"ABC", "lote":"L1", "caducidad":"2026-05-30", "cantidad":20}
   try {
     const json = JSON.parse(textoOriginal);
     datos.sku = json.sku || json.SKU || json.codigo || json.codigoProducto || json.producto || "";
@@ -164,13 +297,11 @@ function extraerDatosDesdeTexto(valor) {
     return datos;
   } catch (_) {}
 
-  // 2) QR con claves: SKU=ABC; LOTE=L1; CAD=30/05/2026; CANT=20
   datos.sku = extraerValorPorClaves(texto, ["SKU", "CODIGO", "CÓDIGO", "PRODUCTO", "ITEM", "ARTICULO", "ARTÍCULO", "CLAVE"]);
   datos.lote = extraerValorPorClaves(texto, ["LOTE", "LOT", "BATCH"]);
   datos.caducidad = normalizarFecha(extraerValorPorClaves(texto, ["CADUCIDAD", "CAD", "EXP", "VENCE", "VENCIMIENTO", "FECHA CADUCIDAD"]));
   datos.cantidad = extraerValorPorClaves(texto, ["CANTIDAD", "CANT", "QTY", "PIEZAS", "PZAS", "PZA", "PCS"]);
 
-  // 3) Formato GS1 visible con paréntesis: (240)SKU(10)LOTE(17)260530(30)20
   if (!datos.sku) {
     const ai240 = textoOriginal.match(/\(240\)([^()]+)/);
     const ai241 = textoOriginal.match(/\(241\)([^()]+)/);
@@ -194,16 +325,12 @@ function extraerDatosDesdeTexto(valor) {
     datos.cantidad = ai30?.[1] || ai37?.[1] || "";
   }
 
-  // 4) Texto tipo producto de Excel: [SKU] Descripción
   if (!datos.sku) {
     const entreCorchetes = textoOriginal.match(/\[(.*?)\]/);
     if (entreCorchetes) datos.sku = entreCorchetes[1];
   }
 
-  // 5) Si no trae claves y parece un SKU simple, usar todo como SKU
-  if (!datos.sku && /^[A-Za-z0-9._-]{3,40}$/.test(textoOriginal)) {
-    datos.sku = textoOriginal;
-  }
+  if (!datos.sku && /^[A-Za-z0-9._-]{3,40}$/.test(textoOriginal)) datos.sku = textoOriginal;
 
   datos.sku = normalizarSKU(datos.sku);
   datos.lote = String(datos.lote || "").trim();
@@ -217,24 +344,18 @@ function extraerValorPorClaves(texto, claves) {
     const claveSegura = clave.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
     const patron = new RegExp(`(?:^|\\n|\\s)${claveSegura}\\s*[:=\\-#]\\s*([^\\n]+)`, "i");
     const match = texto.match(patron);
-    if (match && match[1]) {
-      return match[1].trim();
-    }
+    if (match && match[1]) return match[1].trim();
   }
-
   return "";
 }
-
 
 function normalizarFecha(valor) {
   const texto = String(valor || "").trim();
   if (!texto) return "";
 
-  // yyyy-mm-dd
   let match = texto.match(/^(\d{4})-(\d{2})-(\d{2})$/);
   if (match) return `${match[1]}-${match[2]}-${match[3]}`;
 
-  // dd/mm/yyyy o dd-mm-yyyy
   match = texto.match(/^(\d{1,2})[\/\-](\d{1,2})[\/\-](\d{4})$/);
   if (match) {
     const dd = match[1].padStart(2, "0");
@@ -243,34 +364,27 @@ function normalizarFecha(valor) {
     return `${yyyy}-${mm}-${dd}`;
   }
 
-  // yymmdd para GS1
   match = texto.match(/^(\d{2})(\d{2})(\d{2})$/);
   if (match) return convertirFechaGS1(texto);
-
   return "";
 }
 
 function convertirFechaGS1(valor) {
   const texto = String(valor || "").trim();
   if (!/^\d{6}$/.test(texto)) return "";
-
   const yy = Number(texto.slice(0, 2));
   const mm = texto.slice(2, 4);
   const dd = texto.slice(4, 6);
   const yyyy = yy >= 70 ? `19${String(yy).padStart(2, "0")}` : `20${String(yy).padStart(2, "0")}`;
-
   return `${yyyy}-${mm}-${dd}`;
 }
 
 function aplicarDatosEscaneados(valor, modo = "auto") {
   const texto = String(valor || "").trim();
   if (!texto) return;
-
   const datos = extraerDatosDesdeTexto(texto);
 
-  if ($("datosLeidosQR")) {
-    $("datosLeidosQR").value = texto;
-  }
+  if ($("datosLeidosQR")) $("datosLeidosQR").value = texto;
 
   if (modo === "sku") {
     if (datos.sku) $("skuEscaneado").value = datos.sku;
@@ -289,39 +403,25 @@ function aplicarDatosEscaneados(valor, modo = "auto") {
   if (datos.caducidad) $("caducidadEscaneada").value = datos.caducidad;
   if (datos.cantidad) $("cantidadTarima").value = datos.cantidad;
 
-  if (!datos.sku && texto) {
-    $("skuEscaneado").value = extraerSKUDesdeScan(texto);
-  }
+  if (!datos.sku && texto) $("skuEscaneado").value = extraerSKUDesdeScan(texto);
 
-  if (!$("loteEscaneado").value) {
-    $("loteEscaneado").focus();
-  } else if (!$("caducidadEscaneada").value) {
-    $("caducidadEscaneada").focus();
-  } else if (!$("cantidadTarima").value) {
-    $("cantidadTarima").focus();
-  } else {
-    $("fotoTarima1").focus();
-  }
+  if (!$("loteEscaneado").value) $("loteEscaneado").focus();
+  else if (!$("caducidadEscaneada").value) $("caducidadEscaneada").focus();
+  else if (!$("cantidadTarima").value) $("cantidadTarima").focus();
+  else $("fotoTarima1").focus();
 }
 
 function enfocarCampoDespuesDeSKU() {
-  if (!$("loteEscaneado").value) {
-    $("loteEscaneado").focus();
-  } else if (!$("caducidadEscaneada").value) {
-    $("caducidadEscaneada").focus();
-  } else if (!$("cantidadTarima").value) {
-    $("cantidadTarima").focus();
-  } else {
-    $("fotoTarima1").focus();
-  }
+  if (!$("loteEscaneado").value) $("loteEscaneado").focus();
+  else if (!$("caducidadEscaneada").value) $("caducidadEscaneada").focus();
+  else if (!$("cantidadTarima").value) $("cantidadTarima").focus();
+  else $("fotoTarima1").focus();
 }
 
 function consolidarSKUs(datos) {
   const mapa = {};
-
   datos.forEach(item => {
     const clave = `${item.pedido}|${item.sku}`;
-
     if (!mapa[clave]) {
       mapa[clave] = {
         pedido: item.pedido,
@@ -332,10 +432,8 @@ function consolidarSKUs(datos) {
         cantidadValidada: 0
       };
     }
-
     mapa[clave].cantidadPedida += Number(item.cantidadPedida) || 0;
   });
-
   return Object.values(mapa);
 }
 
@@ -343,63 +441,112 @@ function mostrarPedidosDetectados() {
   const pedidosUnicos = [...new Set(datosExcel.map(x => x.pedido))];
 
   $("resumenExcel").innerHTML = `
-    <h4>Excel cargado correctamente</h4>
+    <h4>Pedidos disponibles</h4>
     <p>SKU consolidados: <b>${datosExcel.length}</b></p>
     <p>Pedidos encontrados: <b>${pedidosUnicos.length}</b></p>
   `;
 
   let opciones = `<option value="">Seleccione un pedido</option>`;
-
   pedidosUnicos.forEach(pedido => {
     opciones += `<option value="${escaparHTML(pedido)}">${escaparHTML(pedido)}</option>`;
   });
 
   $("selectorPedido").innerHTML = `
     <h4>Seleccione el pedido a validar</h4>
-
-    <select id="pedidoDetectado">
-      ${opciones}
-    </select>
-
+    <select id="pedidoDetectado">${opciones}</select>
     <button onclick="seleccionarPedido()">Cargar pedido seleccionado</button>
     <button onclick="verDashboardPedidos()">Ver dashboard de pedidos</button>
     <button onclick="verHistorial()">Ver historial</button>
   `;
 }
 
-function seleccionarPedido() {
+async function seleccionarPedido() {
   const pedido = $("pedidoDetectado")?.value;
-
   if (!pedido) {
     alert("Seleccione un pedido");
     return;
   }
-
-  cargarPedidoDesdeDashboard(pedido);
+  await cargarPedidoDesdeDashboard(pedido);
 }
 
-function cargarPedidoDesdeDashboard(pedido) {
-  pedidoSeleccionado = datosExcel.filter(x => x.pedido === pedido);
+async function cargarPedidoDesdeDashboard(pedido) {
+  try {
+    const pedidos = await supabaseGet(`/pedidos?pedido=eq.${encodeURIComponent(pedido)}&select=*`);
+    if (pedidos.length === 0) {
+      alert("No se encontró el pedido en Supabase");
+      return;
+    }
 
-  if (pedidoSeleccionado.length === 0) {
-    alert("No se encontró información para este pedido");
-    return;
-  }
-
-  if (cierreParcial && cierreParcial.pedido !== pedido) {
+    const p = pedidos[0];
+    pedidoActualId = p.id;
     cierreParcial = null;
+
+    const detalles = await supabaseGet(`/pedido_detalle?pedido_id=eq.${p.id}&select=*&order=id.asc`);
+    const cierres = await supabaseGet(`/cierres_parciales?pedido_id=eq.${p.id}&select=*&order=fecha_cierre.desc&limit=1`);
+
+    if (cierres.length > 0) {
+      cierreParcial = {
+        pedido: p.pedido,
+        cliente: p.cliente || "",
+        motivo: cierres[0].motivo || "",
+        autorizo: cierres[0].autorizo || "",
+        comentario: cierres[0].comentario || "",
+        fechaHora: new Date(cierres[0].fecha_cierre).toLocaleString()
+      };
+    }
+
+    pedidoSeleccionado = detalles.map(d => ({
+      id: d.id,
+      pedidoId: p.id,
+      pedido: p.pedido,
+      cliente: p.cliente || "",
+      sku: d.sku,
+      descripcion: d.descripcion || "",
+      cantidadPedida: Number(d.cantidad_pedida || 0),
+      cantidadValidada: Number(d.cantidad_validada || 0)
+    }));
+
+    await cargarTarimasPedido(p.id, p.pedido);
+
+    $("pedido").value = p.pedido;
+    $("cliente").value = p.cliente || "";
+    $("chofer").value = p.chofer || "";
+    $("validador").value = p.validador || "";
+
+    actualizarAvance();
+    mostrarSeccion("pasoDatos");
+  } catch (error) {
+    console.error(error);
+    alert("No se pudo abrir el pedido desde Supabase.");
   }
-
-  $("pedido").value = pedidoSeleccionado[0].pedido;
-  $("cliente").value = pedidoSeleccionado[0].cliente;
-
-  actualizarAvance();
-  guardarEstado();
-
-  mostrarSeccion("pasoDatos");
 }
 
-function validarDatosGenerales() {
+async function cargarTarimasPedido(pedidoId, pedidoTexto) {
+  const validaciones = await supabaseGet(`/validaciones?pedido_id=eq.${pedidoId}&select=*&order=fecha_validacion.asc`);
+  const evidencias = await supabaseGet(`/evidencias?select=*`);
+
+  tarimasValidadas = validaciones.map(v => {
+    const linea = pedidoSeleccionado.find(x => normalizarSKU(x.sku) === normalizarSKU(v.sku)) || {};
+    const ev = evidencias.filter(e => e.validacion_id === v.id).sort((a,b) => a.id - b.id);
+    return {
+      validacionId: v.id,
+      pedido: pedidoTexto,
+      cliente: linea.cliente || $("cliente")?.value || "",
+      sku: v.sku,
+      descripcion: linea.descripcion || "",
+      lote: v.lote,
+      caducidad: v.caducidad,
+      cantidad: Number(v.cantidad || 0),
+      fechaHora: new Date(v.fecha_validacion).toLocaleString(),
+      foto1Nombre: ev[0]?.nombre_archivo || "",
+      foto2Nombre: ev[1]?.nombre_archivo || "",
+      foto1Base64: ev[0]?.url_archivo || "",
+      foto2Base64: ev[1]?.url_archivo || ""
+    };
+  });
+}
+
+async function validarDatosGenerales() {
   const pedido = $("pedido").value.trim();
   const cliente = $("cliente").value.trim();
   const chofer = $("chofer").value.trim();
@@ -410,10 +557,21 @@ function validarDatosGenerales() {
     return;
   }
 
-  actualizarAvance();
-  guardarEstado();
-  guardarHistorialLigero(obtenerEstatusPedido(pedido));
+  if (!pedidoActualId) {
+    const pedidos = await supabaseGet(`/pedidos?pedido=eq.${encodeURIComponent(pedido)}&select=id`);
+    pedidoActualId = pedidos[0]?.id || null;
+  }
 
+  if (pedidoActualId) {
+    await supabasePatch("pedidos", `id=eq.${pedidoActualId}`, {
+      cliente,
+      chofer,
+      validador,
+      estatus: obtenerEstatusPedido(pedido)
+    });
+  }
+
+  actualizarAvance();
   mostrarSeccion("pasoValidacion");
   enfocarSKU();
 }
@@ -455,9 +613,9 @@ async function guardarTarima() {
     return;
   }
 
-  const nuevoTotal = lineaPedido.cantidadValidada + cantidad;
+  const nuevoTotal = Number(lineaPedido.cantidadValidada || 0) + cantidad;
 
-  if (nuevoTotal > lineaPedido.cantidadPedida) {
+  if (nuevoTotal > Number(lineaPedido.cantidadPedida || 0)) {
     alert(
       "ERROR: Cantidad excedida\n\n" +
       "SKU: " + sku + "\n" +
@@ -481,45 +639,80 @@ async function guardarTarima() {
     return;
   }
 
-  lineaPedido.cantidadValidada = nuevoTotal;
+  try {
+    const usuario = $("validador").value.trim() || "Sin usuario";
 
-  const lineaExcel = datosExcel.find(x =>
-    x.pedido === lineaPedido.pedido &&
-    normalizarSKU(x.sku) === normalizarSKU(lineaPedido.sku)
-  );
+    const validacionCreada = await supabasePost("validaciones", {
+      pedido_id: pedidoActualId || lineaPedido.pedidoId,
+      sku: lineaPedido.sku,
+      lote,
+      caducidad,
+      cantidad,
+      usuario
+    });
 
-  if (lineaExcel) {
-    lineaExcel.cantidadValidada = lineaPedido.cantidadValidada;
-  }
+    const validacionId = validacionCreada[0].id;
 
-  tarimasValidadas.push({
-    pedido: lineaPedido.pedido,
-    cliente: lineaPedido.cliente,
-    sku: lineaPedido.sku,
-    descripcion: lineaPedido.descripcion,
-    lote,
-    caducidad,
-    cantidad,
-    fechaHora: new Date().toLocaleString(),
-    foto1Nombre: foto1 ? foto1.name : "",
-    foto2Nombre: foto2 ? foto2.name : "",
-    foto1Base64,
-    foto2Base64
-  });
+    const evidencias = [];
+    if (foto1Base64) evidencias.push({
+      validacion_id: validacionId,
+      nombre_archivo: foto1 ? foto1.name : "foto1.jpg",
+      url_archivo: foto1Base64
+    });
+    if (foto2Base64) evidencias.push({
+      validacion_id: validacionId,
+      nombre_archivo: foto2 ? foto2.name : "foto2.jpg",
+      url_archivo: foto2Base64
+    });
 
-  limpiarFormularioTarima();
-  actualizarAvance();
+    if (evidencias.length > 0) await supabasePost("evidencias", evidencias);
 
-  const estatus = pedidoCompletado() ? "COMPLETADO" : "EN PROCESO";
+    await supabasePatch("pedido_detalle", `id=eq.${lineaPedido.id}`, {
+      cantidad_validada: nuevoTotal
+    });
 
-  guardarEstado();
-  guardarHistorialLigero(estatus);
+    lineaPedido.cantidadValidada = nuevoTotal;
 
-  if (pedidoCompletado()) {
-    alert("PEDIDO COMPLETADO CORRECTAMENTE");
-    mostrarSeccion("pasoAvance");
-  } else {
-    alert("Tarima guardada correctamente");
+    const lineaExcel = datosExcel.find(x =>
+      x.pedido === lineaPedido.pedido &&
+      normalizarSKU(x.sku) === normalizarSKU(lineaPedido.sku)
+    );
+    if (lineaExcel) lineaExcel.cantidadValidada = nuevoTotal;
+
+    tarimasValidadas.push({
+      validacionId,
+      pedido: lineaPedido.pedido,
+      cliente: lineaPedido.cliente,
+      sku: lineaPedido.sku,
+      descripcion: lineaPedido.descripcion,
+      lote,
+      caducidad,
+      cantidad,
+      fechaHora: new Date().toLocaleString(),
+      foto1Nombre: foto1 ? foto1.name : "",
+      foto2Nombre: foto2 ? foto2.name : "",
+      foto1Base64,
+      foto2Base64
+    });
+
+    const estatus = pedidoCompletado() ? "COMPLETADO" : "EN PROCESO";
+    await supabasePatch("pedidos", `id=eq.${pedidoActualId || lineaPedido.pedidoId}`, {
+      estatus,
+      fecha_cierre: estatus === "COMPLETADO" ? new Date().toISOString() : null
+    });
+
+    limpiarFormularioTarima();
+    actualizarAvance();
+
+    if (pedidoCompletado()) {
+      alert("PEDIDO COMPLETADO CORRECTAMENTE");
+      mostrarSeccion("pasoAvance");
+    } else {
+      alert("Tarima guardada correctamente en Supabase");
+    }
+  } catch (error) {
+    console.error(error);
+    alert("No se pudo guardar en Supabase. Revisa conexión o permisos.");
   }
 }
 
@@ -531,7 +724,6 @@ function limpiarFormularioTarima() {
   $("fotoTarima1").value = "";
   $("fotoTarima2").value = "";
   if ($("datosLeidosQR")) $("datosLeidosQR").value = "";
-
   enfocarSKU();
 }
 
@@ -557,10 +749,9 @@ function actualizarAvance() {
   let html = "";
 
   pedidoSeleccionado.forEach(item => {
-    totalPedido += item.cantidadPedida;
-    totalValidado += item.cantidadValidada;
-
-    const pendiente = item.cantidadPedida - item.cantidadValidada;
+    totalPedido += Number(item.cantidadPedida || 0);
+    totalValidado += Number(item.cantidadValidada || 0);
+    const pendiente = Number(item.cantidadPedida || 0) - Number(item.cantidadValidada || 0);
 
     html += `
       <div class="linea-avance">
@@ -573,9 +764,7 @@ function actualizarAvance() {
     `;
   });
 
-  const porcentaje = totalPedido > 0
-    ? Math.round((totalValidado / totalPedido) * 100)
-    : 0;
+  const porcentaje = totalPedido > 0 ? Math.round((totalValidado / totalPedido) * 100) : 0;
 
   const datosParcial = cierreParcial && cierreParcial.pedido === ($("pedido")?.value || "")
     ? `
@@ -603,41 +792,39 @@ function actualizarAvance() {
 
 function pedidoCompletado() {
   return pedidoSeleccionado.length > 0 &&
-    pedidoSeleccionado.every(item => item.cantidadValidada === item.cantidadPedida);
+    pedidoSeleccionado.every(item => Number(item.cantidadValidada) === Number(item.cantidadPedida));
 }
 
 function obtenerEstatusPedido(pedido) {
-  if (cierreParcial && cierreParcial.pedido === pedido) {
-    return "COMPLETADO PARCIAL";
-  }
+  if (cierreParcial && cierreParcial.pedido === pedido) return "COMPLETADO PARCIAL";
 
   const lineas = datosExcel.filter(x => x.pedido === pedido);
-
+  if (lineas.length === 0 && pedidoSeleccionado.length > 0) {
+    return pedidoCompletado() ? "COMPLETADO" : "EN PROCESO";
+  }
   if (lineas.length === 0) return "PENDIENTE";
 
-  const totalPedido = lineas.reduce((suma, item) => suma + item.cantidadPedida, 0);
-  const totalValidado = lineas.reduce((suma, item) => suma + item.cantidadValidada, 0);
+  const totalPedido = lineas.reduce((suma, item) => suma + Number(item.cantidadPedida || 0), 0);
+  const totalValidado = lineas.reduce((suma, item) => suma + Number(item.cantidadValidada || 0), 0);
 
   if (totalPedido > 0 && totalValidado === totalPedido) return "COMPLETADO";
   if (totalValidado > 0) return "EN PROCESO";
   return "PENDIENTE";
 }
 
-function cerrarPedidoParcial() {
+async function cerrarPedidoParcial() {
   if (pedidoSeleccionado.length === 0) {
     alert("Primero seleccione un pedido");
     return;
   }
 
   const pedido = $("pedido").value.trim();
-
   if (pedidoCompletado()) {
     alert("El pedido ya está completo. No requiere cierre parcial.");
     return;
   }
 
-  const totalValidado = pedidoSeleccionado.reduce((suma, item) => suma + item.cantidadValidada, 0);
-
+  const totalValidado = pedidoSeleccionado.reduce((suma, item) => suma + Number(item.cantidadValidada || 0), 0);
   if (totalValidado <= 0) {
     const confirmarSinCarga = confirm("No hay cantidades validadas. ¿Aun así desea cerrar parcial por faltante?");
     if (!confirmarSinCarga) return;
@@ -657,21 +844,35 @@ function cerrarPedidoParcial() {
 
   const comentario = prompt("Comentario adicional:") || "";
 
-  cierreParcial = {
-    pedido,
-    cliente: $("cliente").value.trim(),
-    motivo: motivo.trim(),
-    autorizo: autorizo.trim(),
-    comentario: comentario.trim(),
-    fechaHora: new Date().toLocaleString()
-  };
+  try {
+    await supabasePost("cierres_parciales", {
+      pedido_id: pedidoActualId || pedidoSeleccionado[0].pedidoId,
+      motivo: motivo.trim(),
+      autorizo: autorizo.trim(),
+      comentario: comentario.trim()
+    });
 
-  actualizarAvance();
-  guardarEstado();
-  guardarHistorialLigero("COMPLETADO PARCIAL");
+    await supabasePatch("pedidos", `id=eq.${pedidoActualId || pedidoSeleccionado[0].pedidoId}`, {
+      estatus: "COMPLETADO PARCIAL",
+      fecha_cierre: new Date().toISOString()
+    });
 
-  alert("Pedido cerrado como COMPLETADO PARCIAL");
-  mostrarSeccion("pasoAvance");
+    cierreParcial = {
+      pedido,
+      cliente: $("cliente").value.trim(),
+      motivo: motivo.trim(),
+      autorizo: autorizo.trim(),
+      comentario: comentario.trim(),
+      fechaHora: new Date().toLocaleString()
+    };
+
+    actualizarAvance();
+    alert("Pedido cerrado como COMPLETADO PARCIAL en Supabase");
+    mostrarSeccion("pasoAvance");
+  } catch (error) {
+    console.error(error);
+    alert("No se pudo cerrar parcial en Supabase.");
+  }
 }
 
 function verResumenValidacion() {
@@ -679,168 +880,96 @@ function verResumenValidacion() {
     alert("Primero seleccione un pedido");
     return;
   }
-
   actualizarAvance();
-
   $("resumenValidacion").innerHTML = $("avancePedido").innerHTML;
-
   mostrarSeccion("pasoResumen");
 }
 
-function verDashboardPedidos() {
-  if (datosExcel.length === 0) {
-    alert("Primero cargue un Excel");
-    return;
-  }
+async function verDashboardPedidos() {
+  try {
+    await cargarPedidosDesdeNube();
 
-  const pedidosUnicos = [...new Set(datosExcel.map(x => x.pedido))];
+    if (datosExcel.length === 0) {
+      $("dashboardPedidos").innerHTML = "<p>No hay pedidos en Supabase.</p>";
+      mostrarSeccion("pasoDashboard");
+      return;
+    }
 
-  let completados = 0;
-  let parciales = 0;
-  let enProceso = 0;
-  let pendientes = 0;
-  let html = "";
+    const pedidosUnicos = [...new Set(datosExcel.map(x => x.pedido))];
 
-  pedidosUnicos.forEach(pedido => {
-    const lineas = datosExcel.filter(x => x.pedido === pedido);
-    const cliente = lineas[0]?.cliente || "";
+    let completados = 0, parciales = 0, enProceso = 0, pendientes = 0, html = "";
 
-    const totalPedido = lineas.reduce((suma, item) => suma + item.cantidadPedida, 0);
-    const totalValidado = lineas.reduce((suma, item) => suma + item.cantidadValidada, 0);
-    const pendiente = totalPedido - totalValidado;
-    const estatus = obtenerEstatusPedido(pedido);
+    pedidosUnicos.forEach(pedido => {
+      const lineas = datosExcel.filter(x => x.pedido === pedido);
+      const cliente = lineas[0]?.cliente || "";
+      const totalPedido = lineas.reduce((suma, item) => suma + Number(item.cantidadPedida || 0), 0);
+      const totalValidado = lineas.reduce((suma, item) => suma + Number(item.cantidadValidada || 0), 0);
+      const pendiente = totalPedido - totalValidado;
+      const estatus = lineas[0]?.estatus || obtenerEstatusPedido(pedido);
 
-    if (estatus === "COMPLETADO") completados++;
-    else if (estatus === "COMPLETADO PARCIAL") parciales++;
-    else if (estatus === "EN PROCESO") enProceso++;
-    else pendientes++;
+      if (estatus === "COMPLETADO") completados++;
+      else if (estatus === "COMPLETADO PARCIAL") parciales++;
+      else if (estatus === "EN PROCESO") enProceso++;
+      else pendientes++;
 
-    html += `
-      <div class="linea-avance">
-        <b>Pedido:</b> ${escaparHTML(pedido)}<br>
-        <b>Cliente:</b> ${escaparHTML(cliente)}<br>
-        <b>Total pedido:</b> ${totalPedido}<br>
-        <b>Total validado:</b> ${totalValidado}<br>
-        <b>Pendiente:</b> ${pendiente}<br>
-        <b>Estatus:</b> ${estatus}<br>
-        <button onclick="cargarPedidoDesdeDashboard('${escaparAtributo(pedido)}')">Abrir pedido</button>
-        <button onclick="generarPDFDesdePedido('${escaparAtributo(pedido)}')">PDF</button>
+      html += `
+        <div class="linea-avance">
+          <b>Pedido:</b> ${escaparHTML(pedido)}<br>
+          <b>Cliente:</b> ${escaparHTML(cliente)}<br>
+          <b>Total pedido:</b> ${totalPedido}<br>
+          <b>Total validado:</b> ${totalValidado}<br>
+          <b>Pendiente:</b> ${pendiente}<br>
+          <b>Estatus:</b> ${estatus}<br>
+          <button onclick="cargarPedidoDesdeDashboard('${escaparAtributo(pedido)}')">Abrir pedido</button>
+          <button onclick="generarPDFDesdePedido('${escaparAtributo(pedido)}')">PDF</button>
+        </div>
+      `;
+    });
+
+    const resumen = `
+      <div class="resultado">
+        <h4>Resumen general en nube</h4>
+        <p>Pedidos encontrados: <b>${pedidosUnicos.length}</b></p>
+        <p>Completados: <b>${completados}</b></p>
+        <p>Completados parciales: <b>${parciales}</b></p>
+        <p>En proceso: <b>${enProceso}</b></p>
+        <p>Pendientes: <b>${pendientes}</b></p>
       </div>
     `;
-  });
 
-  const resumen = `
-    <div class="resultado">
-      <h4>Resumen general</h4>
-      <p>Pedidos encontrados: <b>${pedidosUnicos.length}</b></p>
-      <p>Completados: <b>${completados}</b></p>
-      <p>Completados parciales: <b>${parciales}</b></p>
-      <p>En proceso: <b>${enProceso}</b></p>
-      <p>Pendientes: <b>${pendientes}</b></p>
-    </div>
-  `;
-
-  $("dashboardPedidos").innerHTML = resumen + html;
-  mostrarSeccion("pasoDashboard");
+    $("dashboardPedidos").innerHTML = resumen + html;
+    mostrarSeccion("pasoDashboard");
+  } catch (error) {
+    console.error(error);
+    alert("No se pudo abrir dashboard desde Supabase.");
+  }
 }
 
 function guardarEstado() {
-  const estado = {
-    datosExcel,
-    pedidoSeleccionado,
-    tarimasValidadas,
-    cierreParcial,
-    pedido: $("pedido")?.value || "",
-    cliente: $("cliente")?.value || "",
-    chofer: $("chofer")?.value || "",
-    validador: $("validador")?.value || "",
-    fechaGuardado: new Date().toLocaleString()
-  };
-
-  try {
-    localStorage.setItem("sopwms_estado", JSON.stringify(estado));
-  } catch (error) {
-    console.error(error);
-    alert("No se pudo guardar en memoria. Puede que las fotos sean muy pesadas.");
-  }
+  // Ya no usamos localStorage para operación. Supabase es la fuente de verdad.
 }
 
 function recuperarEstado() {
-  const estadoGuardado = localStorage.getItem("sopwms_estado");
-
-  if (!estadoGuardado) return;
-
-  let estado;
-
-  try {
-    estado = JSON.parse(estadoGuardado);
-  } catch (error) {
-    localStorage.removeItem("sopwms_estado");
-    return;
-  }
-
-  const tieneExcel = estado.datosExcel && estado.datosExcel.length > 0;
-  const tienePedido = estado.pedidoSeleccionado && estado.pedidoSeleccionado.length > 0;
-  const tieneTarimas = estado.tarimasValidadas && estado.tarimasValidadas.length > 0;
-
-  if (!tieneExcel && !tienePedido && !tieneTarimas) {
-    localStorage.removeItem("sopwms_estado");
-    return;
-  }
-
-  datosExcel = estado.datosExcel || [];
-  pedidoSeleccionado = estado.pedidoSeleccionado || [];
-  tarimasValidadas = estado.tarimasValidadas || [];
-  cierreParcial = estado.cierreParcial || null;
-
-  $("pedido").value = estado.pedido || "";
-  $("cliente").value = estado.cliente || "";
-  $("chofer").value = estado.chofer || "";
-  $("validador").value = estado.validador || "";
-
-  if (datosExcel.length > 0) {
-    mostrarPedidosDetectados();
-  }
-
-  if (!tienePedido && !tieneTarimas) {
-    mostrarSeccion("pasoExcel");
-    return;
-  }
-
-  const confirmar = confirm("Se encontró una validación en proceso.\n\n¿Deseas continuar?");
-
-  if (!confirmar) {
-    localStorage.removeItem("sopwms_estado");
-    location.reload();
-    return;
-  }
-
-  actualizarAvance();
-  mostrarSeccion("pasoValidacion");
-  enfocarSKU();
+  // Ya no recuperamos proceso local. Al abrir se cargan pedidos desde Supabase.
 }
 
 function limpiarMemoriaPedido() {
-  const confirmar = confirm("¿Deseas borrar la validación guardada de este equipo?");
-
-  if (!confirmar) return;
-
-  localStorage.removeItem("sopwms_estado");
-
-  alert("Memoria del pedido eliminada correctamente");
+  pedidoSeleccionado = [];
+  tarimasValidadas = [];
+  cierreParcial = null;
+  pedidoActualId = null;
+  alert("Pantalla local limpiada. Los datos de Supabase no se borraron.");
   location.reload();
 }
 
 function borrarTodoLocal() {
-  const confirmar = confirm("Se borrará toda la información almacenada en este navegador.");
-
-  if (!confirmar) return;
-
-  localStorage.removeItem("sopwms_estado");
-  localStorage.removeItem("sopwms_historial");
-
-  alert("Memoria local eliminada correctamente");
-  location.reload();
+  pedidoSeleccionado = [];
+  tarimasValidadas = [];
+  cierreParcial = null;
+  pedidoActualId = null;
+  $("resumenExcel").innerHTML = "";
+  $("selectorPedido").innerHTML = "";
+  alert("Pantalla local limpiada. Los datos en nube siguen intactos.");
 }
 
 function obtenerSemana(fecha) {
@@ -848,107 +977,72 @@ function obtenerSemana(fecha) {
   const primerDia = new Date(f.getFullYear(), 0, 1);
   const dias = Math.floor((f - primerDia) / (24 * 60 * 60 * 1000));
   const semana = Math.ceil((dias + primerDia.getDay() + 1) / 7);
-
   return `${f.getFullYear()}-W${semana}`;
 }
 
-function guardarHistorialLigero(estatusFinal) {
-  if (pedidoSeleccionado.length === 0) return;
-
-  const hoy = new Date();
-
-  const totalPedido = pedidoSeleccionado.reduce((suma, item) => suma + item.cantidadPedida, 0);
-  const totalValidado = pedidoSeleccionado.reduce((suma, item) => suma + item.cantidadValidada, 0);
-
-  const registro = {
-    pedido: $("pedido").value,
-    cliente: $("cliente").value,
-    chofer: $("chofer").value,
-    validador: $("validador").value,
-    fecha: hoy.toISOString().slice(0, 10),
-    mes: hoy.toISOString().slice(0, 7),
-    semana: obtenerSemana(hoy),
-    fechaHora: hoy.toLocaleString(),
-    estatus: estatusFinal,
-    totalPedido,
-    totalValidado,
-    pendiente: totalPedido - totalValidado,
-    pdfGenerado: false,
-    cierreParcial: cierreParcial && cierreParcial.pedido === $("pedido").value ? cierreParcial : null,
-    lineasPedido: JSON.parse(JSON.stringify(pedidoSeleccionado)),
-    tarimasValidadas: JSON.parse(JSON.stringify(tarimasValidadas.filter(t => t.pedido === $("pedido").value)))
-  };
-
-  let historial = JSON.parse(localStorage.getItem("sopwms_historial")) || [];
-
-  const indice = historial.findIndex(item => item.pedido === registro.pedido);
-
-  if (indice >= 0) {
-    historial[indice] = registro;
-  } else {
-    historial.push(registro);
-  }
-
-  try {
-    localStorage.setItem("sopwms_historial", JSON.stringify(historial));
-  } catch (error) {
-    console.error(error);
-    alert("No se pudo guardar el historial completo. Las fotos pueden estar ocupando mucha memoria.");
-  }
+function guardarHistorialLigero() {
+  // Historial ahora es Supabase: pedidos + validaciones + cierres.
 }
 
-function verHistorial() {
-  const historial = JSON.parse(localStorage.getItem("sopwms_historial")) || [];
-  const busqueda = $("buscarHistorial")?.value.toLowerCase() || "";
-  const periodo = $("filtroPeriodo")?.value || "todos";
+async function verHistorial() {
+  try {
+    const pedidos = await supabaseGet("/pedidos?select=*&order=fecha_creacion.desc");
+    const validaciones = await supabaseGet("/validaciones?select=*");
 
-  const hoy = new Date();
-  const diaActual = hoy.toISOString().slice(0, 10);
-  const mesActual = hoy.toISOString().slice(0, 7);
-  const semanaActual = obtenerSemana(hoy);
+    const busqueda = $("buscarHistorial")?.value.toLowerCase() || "";
+    const periodo = $("filtroPeriodo")?.value || "todos";
+    const hoy = new Date();
+    const diaActual = hoy.toISOString().slice(0, 10);
+    const mesActual = hoy.toISOString().slice(0, 7);
+    const semanaActual = obtenerSemana(hoy);
 
-  const filtrado = historial.filter(item => {
-    const coincideBusqueda =
-      String(item.pedido || "").toLowerCase().includes(busqueda) ||
-      String(item.cliente || "").toLowerCase().includes(busqueda);
+    let filtrado = pedidos.filter(p => {
+      const coincideBusqueda =
+        String(p.pedido || "").toLowerCase().includes(busqueda) ||
+        String(p.cliente || "").toLowerCase().includes(busqueda);
 
-    let coincidePeriodo = true;
+      const fecha = p.fecha_creacion ? new Date(p.fecha_creacion) : new Date();
+      const dia = fecha.toISOString().slice(0, 10);
+      const mes = fecha.toISOString().slice(0, 7);
+      const semana = obtenerSemana(fecha);
 
-    if (periodo === "dia") coincidePeriodo = item.fecha === diaActual;
-    if (periodo === "semana") coincidePeriodo = item.semana === semanaActual;
-    if (periodo === "mes") coincidePeriodo = item.mes === mesActual;
+      let coincidePeriodo = true;
+      if (periodo === "dia") coincidePeriodo = dia === diaActual;
+      if (periodo === "semana") coincidePeriodo = semana === semanaActual;
+      if (periodo === "mes") coincidePeriodo = mes === mesActual;
 
-    return coincideBusqueda && coincidePeriodo;
-  });
+      return coincideBusqueda && coincidePeriodo;
+    });
 
-  if (filtrado.length === 0) {
-    $("historialValidaciones").innerHTML = `<p>No hay registros encontrados.</p>`;
+    if (filtrado.length === 0) {
+      $("historialValidaciones").innerHTML = `<p>No hay registros encontrados.</p>`;
+      mostrarSeccion("pasoHistorial");
+      return;
+    }
+
+    let html = "";
+    filtrado.forEach(p => {
+      const vals = validaciones.filter(v => v.pedido_id === p.id);
+      html += `
+        <div class="linea-avance">
+          <b>Pedido:</b> ${escaparHTML(p.pedido)}<br>
+          <b>Cliente:</b> ${escaparHTML(p.cliente || "")}<br>
+          <b>Chofer:</b> ${escaparHTML(p.chofer || "")}<br>
+          <b>Validador:</b> ${escaparHTML(p.validador || "")}<br>
+          <b>Fecha:</b> ${p.fecha_creacion ? new Date(p.fecha_creacion).toLocaleString() : ""}<br>
+          <b>Estatus:</b> ${escaparHTML(p.estatus || "")}<br>
+          <b>Tarimas validadas:</b> ${vals.length}<br><br>
+          <button onclick="generarPDFDesdePedido('${escaparAtributo(p.pedido)}')">Generar PDF</button>
+        </div>
+      `;
+    });
+
+    $("historialValidaciones").innerHTML = html;
     mostrarSeccion("pasoHistorial");
-    return;
+  } catch (error) {
+    console.error(error);
+    alert("No se pudo consultar historial en Supabase.");
   }
-
-  let html = "";
-
-  filtrado.forEach(item => {
-    html += `
-      <div class="linea-avance">
-        <b>Pedido:</b> ${escaparHTML(item.pedido)}<br>
-        <b>Cliente:</b> ${escaparHTML(item.cliente)}<br>
-        <b>Chofer:</b> ${escaparHTML(item.chofer)}<br>
-        <b>Validador:</b> ${escaparHTML(item.validador)}<br>
-        <b>Fecha:</b> ${escaparHTML(item.fechaHora)}<br>
-        <b>Total pedido:</b> ${item.totalPedido}<br>
-        <b>Total validado:</b> ${item.totalValidado}<br>
-        <b>Pendiente:</b> ${item.pendiente}<br>
-        <b>Estatus:</b> ${escaparHTML(item.estatus)}<br>
-        <b>PDF:</b> ${item.pdfGenerado ? "GENERADO" : "PENDIENTE"}<br><br>
-        <button onclick="generarPDFDesdeHistorial('${escaparAtributo(item.pedido)}')">Generar PDF</button>
-      </div>
-    `;
-  });
-
-  $("historialValidaciones").innerHTML = html;
-  mostrarSeccion("pasoHistorial");
 }
 
 function generarPDF() {
@@ -984,14 +1078,9 @@ function generarPDFPedido(lineasPedido, tarimas, datos) {
   const totalValidado = lineasPedido.reduce((s, x) => s + Number(x.cantidadValidada || 0), 0);
   const pendiente = totalPedido - totalValidado;
 
-  const estatusPDF = datos.cierreParcial
-    ? "COMPLETADO PARCIAL"
-    : pendiente === 0
-      ? "COMPLETADO"
-      : "INCOMPLETO";
+  const estatusPDF = datos.cierreParcial ? "COMPLETADO PARCIAL" : pendiente === 0 ? "COMPLETADO" : "INCOMPLETO";
 
   let y = 15;
-
   doc.setFontSize(16);
   doc.text("VALIDACIÓN DE CARGA VS PEDIDO", 14, y);
 
@@ -1006,7 +1095,6 @@ function generarPDFPedido(lineasPedido, tarimas, datos) {
   y += 6;
   doc.setFontSize(12);
   doc.text("RESUMEN DEL PEDIDO", 14, y);
-
   y += 8;
   doc.setFontSize(10);
   y = escribirLineaPDF(doc, `Total pedido original: ${totalPedido}`, 14, y);
@@ -1037,19 +1125,10 @@ function generarPDFPedido(lineasPedido, tarimas, datos) {
       doc.addPage();
       y = 15;
     }
-
     const pendienteSku = Number(item.cantidadPedida || 0) - Number(item.cantidadValidada || 0);
-
     y = escribirLineaPDF(doc, `SKU: ${item.sku}`, 14, y, 180, 5);
     y = escribirLineaPDF(doc, `Descripción: ${item.descripcion}`, 14, y, 180, 5);
-    y = escribirLineaPDF(
-      doc,
-      `Pedido: ${item.cantidadPedida} | Validado: ${item.cantidadValidada} | Pendiente: ${pendienteSku}`,
-      14,
-      y,
-      180,
-      5
-    );
+    y = escribirLineaPDF(doc, `Pedido: ${item.cantidadPedida} | Validado: ${item.cantidadValidada} | Pendiente: ${pendienteSku}`, 14, y, 180, 5);
     y += 3;
   });
 
@@ -1058,13 +1137,10 @@ function generarPDFPedido(lineasPedido, tarimas, datos) {
   tarimasPedido.forEach((t, index) => {
     doc.addPage();
     y = 15;
-
     doc.setFontSize(12);
     doc.text(`REGISTRO VALIDADO ${index + 1}`, 14, y);
-
     y += 8;
     doc.setFontSize(9);
-
     y = escribirLineaPDF(doc, `SKU: ${t.sku}`, 14, y, 180, 5);
     y = escribirLineaPDF(doc, `Descripción: ${t.descripcion}`, 14, y, 180, 5);
     y = escribirLineaPDF(doc, `Lote: ${t.lote}`, 14, y, 180, 5);
@@ -1085,14 +1161,11 @@ function generarPDFPedido(lineasPedido, tarimas, datos) {
 
   doc.addPage();
   y = 20;
-
   doc.setFontSize(12);
   doc.text("CIERRE DE VALIDACIÓN", 14, y);
-
   y += 10;
   doc.setFontSize(10);
   y = escribirLineaPDF(doc, `Resultado final: ${estatusPDF}`, 14, y);
-
   y += 20;
   doc.text("Firma / Nombre del validador:", 14, y);
   y += 15;
@@ -1102,10 +1175,8 @@ function generarPDFPedido(lineasPedido, tarimas, datos) {
 
   const clienteLimpio = limpiarTextoArchivo(datos.cliente);
   const pedidoLimpio = limpiarTextoArchivo(datos.pedido);
-
   doc.save(`${clienteLimpio}_${pedidoLimpio}.pdf`);
-
-  marcarPDFGenerado(datos.pedido);
+  alert("PDF generado correctamente");
 }
 
 function escribirLineaPDF(doc, texto, x, y, ancho = 180, salto = 6) {
@@ -1138,80 +1209,16 @@ function obtenerTipoImagen(base64) {
 }
 
 function limpiarTextoArchivo(texto) {
-  return String(texto || "")
-    .replace(/[^a-zA-Z0-9_-]/g, "_")
-    .substring(0, 40);
+  return String(texto || "").replace(/[^a-zA-Z0-9_-]/g, "_").substring(0, 40);
 }
 
-function marcarPDFGenerado(pedido) {
-  let historial = JSON.parse(localStorage.getItem("sopwms_historial")) || [];
-
-  historial = historial.map(item => {
-    if (item.pedido === pedido) {
-      item.pdfGenerado = true;
-      item.fechaPDF = new Date().toLocaleString();
-    }
-    return item;
-  });
-
-  localStorage.setItem("sopwms_historial", JSON.stringify(historial));
-
-  alert("PDF generado correctamente");
+async function generarPDFDesdePedido(pedido) {
+  await cargarPedidoDesdeDashboard(pedido);
+  generarPDF();
 }
 
-function generarPDFDesdePedido(pedido) {
-  const lineas = datosExcel.filter(x => x.pedido === pedido);
-  const tarimas = tarimasValidadas.filter(x => x.pedido === pedido);
-
-  if (lineas.length === 0) {
-    alert("No se encontró información para generar PDF");
-    return;
-  }
-
-  const cliente = lineas[0].cliente || "";
-  const parcial = cierreParcial && cierreParcial.pedido === pedido ? cierreParcial : null;
-
-  generarPDFPedido(
-    lineas,
-    tarimas,
-    {
-      pedido,
-      cliente,
-      chofer: $("chofer")?.value || "No capturado",
-      validador: $("validador")?.value || "No capturado",
-      cierreParcial: parcial
-    }
-  );
-}
-
-function generarPDFDesdeHistorial(pedido) {
-  const historial = JSON.parse(localStorage.getItem("sopwms_historial")) || [];
-  const registro = historial.find(x => x.pedido === pedido);
-
-  if (!registro) {
-    alert("No se encontró el pedido en historial");
-    return;
-  }
-
-  const lineas = registro.lineasPedido || datosExcel.filter(x => x.pedido === pedido);
-  const tarimas = registro.tarimasValidadas || tarimasValidadas.filter(x => x.pedido === pedido);
-
-  if (lineas.length === 0) {
-    alert("El historial no tiene detalle suficiente para generar PDF. Abra el pedido desde el dashboard.");
-    return;
-  }
-
-  generarPDFPedido(
-    lineas,
-    tarimas,
-    {
-      pedido: registro.pedido,
-      cliente: registro.cliente,
-      chofer: registro.chofer,
-      validador: registro.validador,
-      cierreParcial: registro.cierreParcial || null
-    }
-  );
+async function generarPDFDesdeHistorial(pedido) {
+  await generarPDFDesdePedido(pedido);
 }
 
 function convertirImagenABase64(archivo) {
@@ -1227,19 +1234,16 @@ function convertirImagenABase64(archivo) {
       const img = new Image();
 
       img.onload = function() {
-        const maxAncho = 1000;
+        const maxAncho = 900;
         const escala = Math.min(1, maxAncho / img.width);
         const ancho = Math.round(img.width * escala);
         const alto = Math.round(img.height * escala);
-
         const canvas = document.createElement("canvas");
         canvas.width = ancho;
         canvas.height = alto;
-
         const ctx = canvas.getContext("2d");
         ctx.drawImage(img, 0, 0, ancho, alto);
-
-        resolve(canvas.toDataURL("image/jpeg", 0.72));
+        resolve(canvas.toDataURL("image/jpeg", 0.60));
       };
 
       img.onerror = reject;
@@ -1276,19 +1280,13 @@ function iniciarEscanerCamara(modo = "auto") {
       ]
     : undefined;
 
-  const config = {
-    fps: 10,
-    qrbox: { width: 280, height: 180 }
-  };
-
+  const config = { fps: 10, qrbox: { width: 280, height: 180 } };
   if (formatos) config.formatsToSupport = formatos;
 
   lectorCamara.start(
     { facingMode: "environment" },
     config,
-    codigo => {
-      procesarCodigoCamara(codigo);
-    },
+    codigo => procesarCodigoCamara(codigo),
     () => {}
   ).then(() => {
     escanerActivo = true;
@@ -1335,8 +1333,9 @@ function escaparAtributo(valor) {
     .replace(/"/g, "&quot;");
 }
 
-document.addEventListener("DOMContentLoaded", () => {
-  recuperarEstado();
+document.addEventListener("DOMContentLoaded", async () => {
+  await probarConexionSupabase();
+  await cargarPedidosDesdeNube();
 
   const skuInput = $("skuEscaneado");
   const loteInput = $("loteEscaneado");
@@ -1351,7 +1350,7 @@ document.addEventListener("DOMContentLoaded", () => {
 
     skuInput.addEventListener("change", () => {
       const texto = skuInput.value || "";
-      if (texto.includes("=") || texto.includes(":" ) || texto.includes(";") || texto.includes("|") || texto.includes("{")) {
+      if (texto.includes("=") || texto.includes(":") || texto.includes(";") || texto.includes("|") || texto.includes("{")) {
         aplicarDatosEscaneados(texto, "auto");
       } else {
         skuInput.value = extraerSKUDesdeScan(texto);
