@@ -99,3 +99,22 @@ textarea {
   margin-bottom: 10px;
   border-radius: 8px;
 }
+select {
+  width: 100%;
+  padding: 12px;
+  margin-top: 10px;
+  border-radius: 8px;
+  border: 1px solid #ccc;
+  box-sizing: border-box;
+}
+
+#estadoNube {
+  font-size: 13px;
+  text-align: center;
+}
+
+@media (min-width: 900px) {
+  .app {
+    max-width: 760px;
+  }
+}
