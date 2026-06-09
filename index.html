@@ -15,7 +15,7 @@
 
   <!-- Escaneo con cámara: QR y códigos de barras compatibles -->
   <script src="https://unpkg.com/html5-qrcode"></script>
-<script src="https://cdn.jsdelivr.net/npm/tesseract.js@5/dist/tesseract.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/tesseract.js@5/dist/tesseract.min.js"></script>
 </head>
 
 <body>
@@ -35,9 +35,9 @@
       id="archivoExcel"
       accept=".xlsx,.xls,.csv,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet,application/vnd.ms-excel">
 
-    <button onclick="iniciarEscanerCamara('auto')">Escanear QR / etiqueta completa</button>
-    <button onclick="iniciarEscanerCamara('sku')">Escanear solo SKU</button>
-    <button onclick="detenerEscanerCamara()">Cerrar cámara</button>
+    <button onclick="leerExcel()">Cargar Excel y subir a nube</button>
+    <button onclick="cargarPedidosDesdeNube()">Actualizar pedidos desde nube</button>
+    <button onclick="borrarTodoLocal()">Limpiar pantalla local</button>
     
 
     <div id="resumenExcel" class="resultado"></div>
