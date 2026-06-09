@@ -10,9 +10,6 @@
   <!-- Excel -->
   <script src="https://cdn.jsdelivr.net/npm/xlsx/dist/xlsx.full.min.js"></script>
 
-  <!-- OCR para leer texto de etiquetas con cámara -->
-  <script src="https://unpkg.com/tesseract.js@5/dist/tesseract.min.js"></script>
-
   <!-- PDF -->
   <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
 
@@ -81,7 +78,6 @@
     <button onclick="iniciarEscanerCamara('auto')">Escanear QR / etiqueta completa</button>
     <button onclick="iniciarEscanerCamara('sku')">Escanear solo SKU</button>
     <button onclick="detenerEscanerCamara()">Cerrar cámara</button>
-    <button onclick="leerEtiquetaOCR()">Leer etiqueta con cámara (OCR)</button>
 
     <div id="lectorCamara" style="width:100%; max-width:360px; margin-top:10px;"></div>
 
@@ -106,13 +102,48 @@
     <button onclick="limpiarCapturaTarima()">Limpiar captura</button>
 
     <label>Evidencia 1</label>
-    <input type="file" id="fotoTarima1" accept="image/*">
+    <button type="button" onclick="abrirCamaraEvidencia('fotoTarima1Camara')">Tomar foto evidencia 1</button>
+    <input
+      type="file"
+      id="fotoTarima1Camara"
+      accept="image/*"
+      capture="environment"
+      style="display:none"
+      onchange="mostrarNombreEvidencia('fotoTarima1Camara','nombreFotoTarima1')">
+
+    <button type="button" onclick="abrirGaleriaEvidencia('fotoTarima1Galeria')">Elegir imagen evidencia 1</button>
+    <input
+      type="file"
+      id="fotoTarima1Galeria"
+      accept="image/*"
+      style="display:none"
+      onchange="mostrarNombreEvidencia('fotoTarima1Galeria','nombreFotoTarima1')">
+
+    <div id="nombreFotoTarima1" class="nota">Sin evidencia 1 seleccionada.</div>
 
     <label>Evidencia 2 opcional</label>
-    <input type="file" id="fotoTarima2" accept="image/*">
+    <button type="button" onclick="abrirCamaraEvidencia('fotoTarima2Camara')">Tomar foto evidencia 2</button>
+    <input
+      type="file"
+      id="fotoTarima2Camara"
+      accept="image/*"
+      capture="environment"
+      style="display:none"
+      onchange="mostrarNombreEvidencia('fotoTarima2Camara','nombreFotoTarima2')">
+
+    <button type="button" onclick="abrirGaleriaEvidencia('fotoTarima2Galeria')">Elegir imagen evidencia 2</button>
+    <input
+      type="file"
+      id="fotoTarima2Galeria"
+      accept="image/*"
+      style="display:none"
+      onchange="mostrarNombreEvidencia('fotoTarima2Galeria','nombreFotoTarima2')">
+
+    <div id="nombreFotoTarima2" class="nota">Sin evidencia 2 seleccionada.</div>
 
     <p class="nota">
-      En celular puede tomar foto en vivo o elegir imagen de galería. Máximo 2 fotografías por tarima.
+      📷 En celular/Zebra: puede tomar foto en vivo o elegir imagen desde galería.
+      🖥️ En PC: puede seleccionar archivo. Máximo 2 fotografías por tarima.
     </p>
 
     <button onclick="guardarTarima()">Guardar tarima validada</button>
@@ -183,7 +214,6 @@
 
 </div>
 
-<script src="script.js?v=ocrfix3"></script>
-
+<script src="script.js?v=evidencia2"></script>
 </body>
 </html>
