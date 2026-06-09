@@ -1352,30 +1352,47 @@ function cargarTesseractOCR() {
       return;
     }
 
-    const existente = document.getElementById("tesseractOCRScript");
-    if (existente) {
-      existente.addEventListener("load", () => resolve(window.Tesseract));
-      existente.addEventListener("error", reject);
-      return;
+    const urls = [
+      "https://unpkg.com/tesseract.js@5/dist/tesseract.min.js",
+      "https://cdn.jsdelivr.net/npm/tesseract.js@5/dist/tesseract.min.js"
+    ];
+
+    let intento = 0;
+
+    function cargarSiguiente() {
+      if (window.Tesseract) {
+        resolve(window.Tesseract);
+        return;
+      }
+
+      if (intento >= urls.length) {
+        reject(new Error("No se pudo cargar Tesseract OCR desde ningún CDN"));
+        return;
+      }
+
+      const script = document.createElement("script");
+      script.id = "tesseractOCRScript_" + intento;
+      script.src = urls[intento] + "?v=" + Date.now();
+      script.async = true;
+
+      intento++;
+
+      script.onload = () => {
+        if (window.Tesseract) resolve(window.Tesseract);
+        else cargarSiguiente();
+      };
+
+      script.onerror = () => cargarSiguiente();
+
+      document.head.appendChild(script);
     }
 
-    const script = document.createElement("script");
-    script.id = "tesseractOCRScript";
-    script.src = "https://cdn.jsdelivr.net/npm/tesseract.js@5/dist/tesseract.min.js";
-    script.onload = () => resolve(window.Tesseract);
-    script.onerror = () => reject(new Error("No se pudo cargar Tesseract OCR"));
-    document.body.appendChild(script);
+    cargarSiguiente();
   });
 }
 
 async function leerEtiquetaOCR() {
   try {
-    const TesseractOCR = await cargarTesseractOCR();
-    if (!TesseractOCR) {
-      alert("No se cargó la librería OCR. Revise conexión a internet.");
-      return;
-    }
-
     const input = document.createElement("input");
     input.type = "file";
     input.accept = "image/*";
@@ -1386,6 +1403,16 @@ async function leerEtiquetaOCR() {
       if (!archivo) return;
 
       try {
+        mostrarEstadoNube("⏳ Cargando OCR... espera unos segundos");
+
+        const TesseractOCR = await cargarTesseractOCR();
+
+        if (!TesseractOCR) {
+          mostrarEstadoNube("❌ No se cargó OCR");
+          alert("No se cargó la librería OCR. Revisa internet o prueba actualizar la página.");
+          return;
+        }
+
         mostrarEstadoNube("⏳ Leyendo etiqueta con OCR... mantén esta pantalla abierta");
 
         const resultado = await TesseractOCR.recognize(
@@ -1431,8 +1458,12 @@ async function leerEtiquetaOCR() {
 
       } catch (error) {
         console.error(error);
-        mostrarEstadoNube("❌ Error OCR. Intenta otra foto.");
-        alert("No fue posible leer la etiqueta.\n\nIntenta tomar la foto más cerca, derecha y con mejor iluminación.");
+        mostrarEstadoNube("❌ Error OCR. Intenta otra foto o revisa internet.");
+        alert(
+          "No fue posible leer la etiqueta con OCR.\n\n" +
+          "La cámara/foto sí abrió, pero falló la lectura OCR.\n" +
+          "Prueba con mejor iluminación o revisa conexión a internet."
+        );
       }
     };
 
