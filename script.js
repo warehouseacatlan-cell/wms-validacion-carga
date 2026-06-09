@@ -28,14 +28,25 @@ function headers(extra = {}) {
   };
 }
 
+async function fetchConTiempoLimite(url, opciones = {}, segundos = 12) {
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), segundos * 1000);
+
+  try {
+    return await fetch(url, { ...opciones, signal: controller.signal });
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
 async function supabaseGet(path) {
-  const res = await fetch(API_BASE + path, { headers: headers() });
+  const res = await fetchConTiempoLimite(API_BASE + path, { headers: headers() });
   if (!res.ok) throw new Error(await res.text());
   return await res.json();
 }
 
 async function supabasePost(table, body) {
-  const res = await fetch(`${API_BASE}/${table}`, {
+  const res = await fetchConTiempoLimite(`${API_BASE}/${table}`, {
     method: "POST",
     headers: headers(),
     body: JSON.stringify(body)
@@ -45,7 +56,7 @@ async function supabasePost(table, body) {
 }
 
 async function supabasePatch(table, query, body) {
-  const res = await fetch(`${API_BASE}/${table}?${query}`, {
+  const res = await fetchConTiempoLimite(`${API_BASE}/${table}?${query}`, {
     method: "PATCH",
     headers: headers(),
     body: JSON.stringify(body)
@@ -55,7 +66,7 @@ async function supabasePatch(table, query, body) {
 }
 
 async function supabaseDelete(table, query) {
-  const res = await fetch(`${API_BASE}/${table}?${query}`, {
+  const res = await fetchConTiempoLimite(`${API_BASE}/${table}?${query}`, {
     method: "DELETE",
     headers: headers({ "Prefer": "return=minimal" })
   });
@@ -1359,7 +1370,8 @@ function cargarTesseractOCR() {
 
 async function leerEtiquetaOCR() {
   try {
-    if (typeof Tesseract === "undefined") {
+    const TesseractOCR = await cargarTesseractOCR();
+    if (!TesseractOCR) {
       alert("No se cargó la librería OCR. Revise conexión a internet.");
       return;
     }
@@ -1376,7 +1388,7 @@ async function leerEtiquetaOCR() {
       try {
         mostrarEstadoNube("⏳ Leyendo etiqueta con OCR... mantén esta pantalla abierta");
 
-        const resultado = await Tesseract.recognize(
+        const resultado = await TesseractOCR.recognize(
           archivo,
           "spa+eng",
           {
@@ -1538,8 +1550,14 @@ function extraerFechaOCR(textoUpper) {
 
 
 document.addEventListener("DOMContentLoaded", async () => {
-  await probarConexionSupabase();
-  await cargarPedidosDesdeNube();
+  try {
+    mostrarEstadoNube("⏳ Conectando con Supabase...");
+    await probarConexionSupabase();
+    await cargarPedidosDesdeNube();
+  } catch (error) {
+    console.error("Error inicial cargando Supabase:", error);
+    mostrarEstadoNube("❌ No conectó con Supabase. Recarga con Ctrl+F5 o revisa internet.");
+  }
 
   const skuInput = $("skuEscaneado");
   const loteInput = $("loteEscaneado");
