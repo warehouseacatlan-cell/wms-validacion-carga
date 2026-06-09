@@ -419,14 +419,14 @@ function aplicarDatosEscaneados(valor, modo = "auto") {
   if (!$("loteEscaneado").value) $("loteEscaneado").focus();
   else if (!$("caducidadEscaneada").value) $("caducidadEscaneada").focus();
   else if (!$("cantidadTarima").value) $("cantidadTarima").focus();
-  else $("fotoTarima1").focus();
+  else if ($("fotoTarima1Camara")) $("fotoTarima1Camara").focus();
 }
 
 function enfocarCampoDespuesDeSKU() {
   if (!$("loteEscaneado").value) $("loteEscaneado").focus();
   else if (!$("caducidadEscaneada").value) $("caducidadEscaneada").focus();
   else if (!$("cantidadTarima").value) $("cantidadTarima").focus();
-  else $("fotoTarima1").focus();
+  else if ($("fotoTarima1Camara")) $("fotoTarima1Camara").focus();
 }
 
 function consolidarSKUs(datos) {
@@ -593,8 +593,8 @@ async function guardarTarima() {
   const caducidad = $("caducidadEscaneada").value;
   const cantidad = Number($("cantidadTarima").value);
 
-  const foto1 = $("fotoTarima1").files[0];
-  const foto2 = $("fotoTarima2").files[0];
+  const foto1 = obtenerArchivoEvidencia("fotoTarima1Camara", "fotoTarima1Galeria");
+  const foto2 = obtenerArchivoEvidencia("fotoTarima2Camara", "fotoTarima2Galeria");
 
   if (!sku || !lote || !caducidad || !cantidad) {
     alert("Debe completar SKU, lote, caducidad y cantidad");
@@ -732,8 +732,7 @@ function limpiarFormularioTarima() {
   $("loteEscaneado").value = "";
   $("caducidadEscaneada").value = "";
   $("cantidadTarima").value = "";
-  $("fotoTarima1").value = "";
-  $("fotoTarima2").value = "";
+  limpiarEvidencias();
   if ($("datosLeidosQR")) $("datosLeidosQR").value = "";
   enfocarSKU();
 }
@@ -1266,6 +1265,59 @@ function convertirImagenABase64(archivo) {
   });
 }
 
+function abrirCamaraEvidencia(inputId) {
+  const input = $(inputId);
+  if (!input) {
+    alert("No se encontró el campo de cámara.");
+    return;
+  }
+  input.click();
+}
+
+function abrirGaleriaEvidencia(inputId) {
+  const input = $(inputId);
+  if (!input) {
+    alert("No se encontró el campo de galería.");
+    return;
+  }
+  input.click();
+}
+
+function obtenerArchivoEvidencia(idCamara, idGaleria) {
+  const archivoCamara = $(idCamara)?.files?.[0] || null;
+  const archivoGaleria = $(idGaleria)?.files?.[0] || null;
+  return archivoCamara || archivoGaleria || null;
+}
+
+function mostrarNombreEvidencia(inputId, contenedorId) {
+  const archivo = $(inputId)?.files?.[0] || null;
+  const contenedor = $(contenedorId);
+
+  if (!contenedor) return;
+
+  if (!archivo) {
+    contenedor.textContent = "Sin evidencia seleccionada.";
+    return;
+  }
+
+  contenedor.textContent = "✅ Evidencia seleccionada: " + archivo.name;
+}
+
+function limpiarInputArchivo(id) {
+  const input = $(id);
+  if (input) input.value = "";
+}
+
+function limpiarEvidencias() {
+  limpiarInputArchivo("fotoTarima1Camara");
+  limpiarInputArchivo("fotoTarima1Galeria");
+  limpiarInputArchivo("fotoTarima2Camara");
+  limpiarInputArchivo("fotoTarima2Galeria");
+
+  if ($("nombreFotoTarima1")) $("nombreFotoTarima1").textContent = "Sin evidencia 1 seleccionada.";
+  if ($("nombreFotoTarima2")) $("nombreFotoTarima2").textContent = "Sin evidencia 2 seleccionada.";
+}
+
 function iniciarEscanerCamara(modo = "auto") {
   if (typeof Html5Qrcode === "undefined") {
     alert("No se cargó la librería de escaneo. Revise conexión a internet.");
@@ -1342,241 +1394,6 @@ function escaparAtributo(valor) {
     .replace(/\\/g, "\\\\")
     .replace(/'/g, "\\'")
     .replace(/"/g, "&quot;");
-}
-
-
-function cargarTesseractOCR() {
-  return new Promise((resolve, reject) => {
-    if (window.Tesseract) {
-      resolve(window.Tesseract);
-      return;
-    }
-
-    const urls = [
-      "https://unpkg.com/tesseract.js@5/dist/tesseract.min.js",
-      "https://cdn.jsdelivr.net/npm/tesseract.js@5/dist/tesseract.min.js"
-    ];
-
-    let intento = 0;
-
-    function cargarSiguiente() {
-      if (window.Tesseract) {
-        resolve(window.Tesseract);
-        return;
-      }
-
-      if (intento >= urls.length) {
-        reject(new Error("No se pudo cargar Tesseract OCR desde ningún CDN"));
-        return;
-      }
-
-      const script = document.createElement("script");
-      script.id = "tesseractOCRScript_" + intento;
-      script.src = urls[intento] + "?v=" + Date.now();
-      script.async = true;
-
-      intento++;
-
-      script.onload = () => {
-        if (window.Tesseract) resolve(window.Tesseract);
-        else cargarSiguiente();
-      };
-
-      script.onerror = () => cargarSiguiente();
-
-      document.head.appendChild(script);
-    }
-
-    cargarSiguiente();
-  });
-}
-
-async function leerEtiquetaOCR() {
-  try {
-    const input = document.createElement("input");
-    input.type = "file";
-    input.accept = "image/*";
-    input.capture = "environment";
-
-    input.onchange = async function(e) {
-      const archivo = e.target.files && e.target.files[0];
-      if (!archivo) return;
-
-      try {
-        mostrarEstadoNube("⏳ Cargando OCR... espera unos segundos");
-
-        const TesseractOCR = await cargarTesseractOCR();
-
-        if (!TesseractOCR) {
-          mostrarEstadoNube("❌ No se cargó OCR");
-          alert("No se cargó la librería OCR. Revisa internet o prueba actualizar la página.");
-          return;
-        }
-
-        mostrarEstadoNube("⏳ Leyendo etiqueta con OCR... mantén esta pantalla abierta");
-
-        const resultado = await TesseractOCR.recognize(
-          archivo,
-          "spa+eng",
-          {
-            logger: m => {
-              if (m.status === "recognizing text" && typeof m.progress === "number") {
-                const pct = Math.round(m.progress * 100);
-                mostrarEstadoNube(`⏳ Leyendo etiqueta OCR... ${pct}%`);
-              }
-            }
-          }
-        );
-
-        const texto = (resultado.data && resultado.data.text) ? resultado.data.text : "";
-        if ($("datosLeidosQR")) $("datosLeidosQR").value = texto;
-
-        const datos = extraerDatosDesdeOCR(texto);
-
-        if (datos.sku) $("skuEscaneado").value = datos.sku;
-        if (datos.lote) $("loteEscaneado").value = datos.lote;
-        if (datos.caducidad) $("caducidadEscaneada").value = datos.caducidad;
-        if (datos.cantidad) $("cantidadTarima").value = datos.cantidad;
-
-        mostrarEstadoNube("✅ OCR terminado. Revisa los campos antes de guardar.");
-
-        if (!datos.sku && !datos.lote && !datos.caducidad && !datos.cantidad) {
-          alert("OCR terminó, pero no encontró datos claros.\n\nToma la foto más cerca, derecha y con mejor luz.");
-          return;
-        }
-
-        alert(
-          "Lectura OCR terminada.\n\n" +
-          "SKU: " + (datos.sku || "No detectado") + "\n" +
-          "Lote: " + (datos.lote || "No detectado") + "\n" +
-          "Caducidad: " + (datos.caducidad || "No detectada") + "\n" +
-          "Cantidad: " + (datos.cantidad || "No detectada") + "\n\n" +
-          "Revisa antes de guardar."
-        );
-
-        enfocarCampoDespuesDeSKU();
-
-      } catch (error) {
-        console.error(error);
-        mostrarEstadoNube("❌ Error OCR. Intenta otra foto o revisa internet.");
-        alert(
-          "No fue posible leer la etiqueta con OCR.\n\n" +
-          "La cámara/foto sí abrió, pero falló la lectura OCR.\n" +
-          "Prueba con mejor iluminación o revisa conexión a internet."
-        );
-      }
-    };
-
-    input.click();
-
-  } catch(error) {
-    console.error(error);
-    alert("No fue posible abrir la cámara/galería para OCR.");
-  }
-}
-
-function extraerDatosDesdeOCR(texto) {
-  const original = String(texto || "");
-  const limpio = original
-    .normalize("NFD").replace(/[\u0300-\u036f]/g, "")
-    .replace(/[|]/g, " ")
-    .replace(/\s+/g, " ")
-    .trim();
-
-  const upper = limpio.toUpperCase();
-
-  let sku = extraerSKUPorListaPedido(upper);
-  let lote = "";
-  let cantidad = "";
-  let caducidad = "";
-
-  // Lote: soporta "No. de Lote: AC526/1391", "LOTE AC5261391", OCR con espacios, etc.
-  let mLote = upper.match(/(?:LOTE|LOT|BATCH)\s*[:#\-]?\s*([A-Z0-9][A-Z0-9\/\-]{3,30})/);
-  if (!mLote) mLote = upper.match(/(?:NO\.?\s*DE\s*)?LOTE\s*[:#\-]?\s*([A-Z0-9][A-Z0-9\/\-]{3,30})/);
-  if (mLote) lote = limpiarValorOCR(mLote[1]);
-
-  // Caducidad/fecha: soporta 19MAYO2026, 19 MAYO 2026, 19/05/2026.
-  caducidad = extraerFechaOCR(upper);
-
-  // Cantidad: preferimos Sacos sobre KG para cantidad de tarima.
-  let mSacos = upper.match(/(?:NO\.?\s*DE\s*)?SACOS?\s*[:#\-]?\s*(\d{1,6})/);
-  if (!mSacos) mSacos = upper.match(/(\d{1,6})\s*SACOS?/);
-  if (mSacos) cantidad = mSacos[1];
-
-  if (!cantidad) {
-    let mCant = upper.match(/(?:CANTIDAD|CANT|QTY|PIEZAS|PZAS|PCS)\s*[:#\-]?\s*(\d{1,6})/);
-    if (mCant) cantidad = mCant[1];
-  }
-
-  // Si no detectó SKU por lista del pedido, buscar códigos tipo MAMMG10.
-  if (!sku) {
-    const candidatos = upper.match(/\b[A-Z]{2,}[A-Z0-9]{2,}\d+\b/g) || [];
-    const ignorar = ["FOLIO", "FECHA", "LOTE", "SACOS", "TARIMAS", "PRODUCTO", "MAYO", "ENERO"];
-    const candidato = candidatos.find(x => !ignorar.some(i => x.includes(i)) && x.length >= 5);
-    if (candidato) sku = normalizarSKU(candidato);
-  }
-
-  return {
-    sku: normalizarSKU(sku),
-    lote,
-    caducidad,
-    cantidad
-  };
-}
-
-function extraerSKUPorListaPedido(textoUpper) {
-  if (!Array.isArray(pedidoSeleccionado) || pedidoSeleccionado.length === 0) return "";
-
-  const textoCompacto = String(textoUpper || "").replace(/[^A-Z0-9]/g, "");
-
-  for (const item of pedidoSeleccionado) {
-    const sku = normalizarSKU(item.sku);
-    const skuCompacto = sku.replace(/[^A-Z0-9]/g, "");
-    if (skuCompacto && textoCompacto.includes(skuCompacto)) {
-      return sku;
-    }
-  }
-
-  return "";
-}
-
-function limpiarValorOCR(valor) {
-  return String(valor || "")
-    .replace(/[^A-Z0-9\/\-]/gi, "")
-    .replace(/^[:#\-]+/, "")
-    .trim()
-    .toUpperCase();
-}
-
-function extraerFechaOCR(textoUpper) {
-  const texto = String(textoUpper || "").normalize("NFD").replace(/[\u0300-\u036f]/g, "");
-
-  let m = texto.match(/(\d{1,2})[\/\-](\d{1,2})[\/\-](\d{4})/);
-  if (m) {
-    const dd = m[1].padStart(2, "0");
-    const mm = m[2].padStart(2, "0");
-    const yyyy = m[3];
-    return `${yyyy}-${mm}-${dd}`;
-  }
-
-  const meses = {
-    ENERO: "01", FEBRERO: "02", MARZO: "03", ABRIL: "04", MAYO: "05", JUNIO: "06",
-    JULIO: "07", AGOSTO: "08", SEPTIEMBRE: "09", SETIEMBRE: "09", OCTUBRE: "10",
-    NOVIEMBRE: "11", DICIEMBRE: "12",
-    ENE: "01", FEB: "02", MAR: "03", ABR: "04", MAY: "05", JUN: "06",
-    JUL: "07", AGO: "08", SEP: "09", OCT: "10", NOV: "11", DIC: "12"
-  };
-
-  m = texto.match(/(\d{1,2})\s*([A-Z]{3,10})\s*(\d{4})/);
-  if (m) {
-    const dd = m[1].padStart(2, "0");
-    const mesTexto = m[2];
-    const yyyy = m[3];
-    const mm = meses[mesTexto] || "";
-    if (mm) return `${yyyy}-${mm}-${dd}`;
-  }
-
-  return "";
 }
 
 
