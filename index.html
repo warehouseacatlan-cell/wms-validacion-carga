@@ -67,7 +67,7 @@
   <section class="seccion" id="pasoValidacion">
     <h3>3. Validar Tarima</h3>
 
-    <label>Escanear SKU / Código / QR</label>
+    <label>Escanear QR o Código de Barras</label>
     <input
       type="text"
       id="skuEscaneado"
@@ -81,13 +81,13 @@
 
     <div id="lectorCamara" style="width:100%; max-width:360px; margin-top:10px;"></div>
 
-    <label>Datos leídos del QR / etiqueta</label>
-    <textarea id="datosLeidosQR" rows="3" placeholder="Aquí aparecerá el contenido leído del QR o código" readonly></textarea>
+    <label>Datos capturados</label>
+    <textarea id="datosLeidosQR" rows="3" placeholder="Aquí aparecerá el contenido leído del QR o código de barras" readonly></textarea>
 
     <p class="nota">
       Compatible con pistola Zebra, scanner USB/Bluetooth de computadora y cámara de celular.
       Si el QR trae SKU, lote, caducidad y cantidad, la app llenará los campos automáticamente.
-      Con scanner físico, coloque el cursor en SKU y escanee; al presionar Enter también se intentará extraer la información.
+      La caducidad se convierte automáticamente a formato de calendario cuando el QR trae fecha.
     </p>
 
     <label>Lote</label>
