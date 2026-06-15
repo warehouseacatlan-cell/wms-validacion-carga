@@ -361,23 +361,88 @@ function extraerValorPorClaves(texto, claves) {
 }
 
 function normalizarFecha(valor) {
-  const texto = String(valor || "").trim();
+  let texto = String(valor || "")
+    .trim()
+    .toUpperCase()
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "");
+
   if (!texto) return "";
 
-  let match = texto.match(/^(\d{4})-(\d{2})-(\d{2})$/);
-  if (match) return `${match[1]}-${match[2]}-${match[3]}`;
+  // Limpia prefijos comunes de QR/etiqueta.
+  texto = texto
+    .replace(/^(CADUCIDAD|CAD|EXP|VENCE|VENCIMIENTO|FECHA CADUCIDAD)\s*[:=\-#]?\s*/i, "")
+    .replace(/\s+/g, " ")
+    .trim();
 
-  match = texto.match(/^(\d{1,2})[\/\-](\d{1,2})[\/\-](\d{4})$/);
+  // yyyy-mm-dd o yyyy/mm/dd
+  let match = texto.match(/^(\d{4})[\/\-](\d{1,2})[\/\-](\d{1,2})$/);
+  if (match) {
+    const yyyy = match[1];
+    const mm = match[2].padStart(2, "0");
+    const dd = match[3].padStart(2, "0");
+    return fechaValidaISO(yyyy, mm, dd);
+  }
+
+  // dd/mm/yyyy, dd-mm-yyyy o dd.mm.yyyy
+  match = texto.match(/^(\d{1,2})[\/\-.](\d{1,2})[\/\-.](\d{4})$/);
   if (match) {
     const dd = match[1].padStart(2, "0");
     const mm = match[2].padStart(2, "0");
     const yyyy = match[3];
-    return `${yyyy}-${mm}-${dd}`;
+    return fechaValidaISO(yyyy, mm, dd);
   }
 
+  // dd MES yyyy: 19 MAYO 2026, 19-MAY-2026, 19MAYO2026
+  const meses = {
+    ENERO: "01", ENE: "01",
+    FEBRERO: "02", FEB: "02",
+    MARZO: "03", MAR: "03",
+    ABRIL: "04", ABR: "04",
+    MAYO: "05", MAY: "05",
+    JUNIO: "06", JUN: "06",
+    JULIO: "07", JUL: "07",
+    AGOSTO: "08", AGO: "08",
+    SEPTIEMBRE: "09", SETIEMBRE: "09", SEP: "09",
+    OCTUBRE: "10", OCT: "10",
+    NOVIEMBRE: "11", NOV: "11",
+    DICIEMBRE: "12", DIC: "12"
+  };
+
+  match = texto.match(/^(\d{1,2})\s*[\/\-. ]?\s*([A-ZÑ]+)\s*[\/\-. ]?\s*(\d{4})$/);
+  if (match) {
+    const dd = match[1].padStart(2, "0");
+    const mm = meses[match[2].replace(/Ñ/g, "N")];
+    const yyyy = match[3];
+    if (mm) return fechaValidaISO(yyyy, mm, dd);
+  }
+
+  // GS1: yymmdd
   match = texto.match(/^(\d{2})(\d{2})(\d{2})$/);
   if (match) return convertirFechaGS1(texto);
+
+  // Busca una fecha dentro de un texto más largo.
+  match = texto.match(/(\d{1,2}[\/\-.]\d{1,2}[\/\-.]\d{4})/);
+  if (match) return normalizarFecha(match[1]);
+
+  match = texto.match(/(\d{1,2}\s*[\/\-. ]?\s*[A-ZÑ]+\s*[\/\-. ]?\s*\d{4})/);
+  if (match) return normalizarFecha(match[1]);
+
   return "";
+}
+
+function fechaValidaISO(yyyy, mm, dd) {
+  const iso = `${yyyy}-${mm}-${dd}`;
+  const fecha = new Date(`${iso}T00:00:00`);
+  if (
+    Number.isNaN(fecha.getTime()) ||
+    fecha.getUTCFullYear() !== Number(yyyy) ||
+    fecha.getUTCMonth() + 1 !== Number(mm) ||
+    fecha.getUTCDate() !== Number(dd)
+  ) {
+    return "";
+  }
+  return iso;
 }
 
 function convertirFechaGS1(valor) {
@@ -411,7 +476,7 @@ function aplicarDatosEscaneados(valor, modo = "auto") {
 
   if (datos.sku) $("skuEscaneado").value = datos.sku;
   if (datos.lote) $("loteEscaneado").value = datos.lote;
-  if (datos.caducidad) $("caducidadEscaneada").value = datos.caducidad;
+  if (datos.caducidad) $("caducidadEscaneada").value = normalizarFecha(datos.caducidad);
   if (datos.cantidad) $("cantidadTarima").value = datos.cantidad;
 
   if (!datos.sku && texto) $("skuEscaneado").value = extraerSKUDesdeScan(texto);
