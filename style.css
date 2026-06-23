@@ -127,3 +127,36 @@ select {
   border-radius: 8px;
   margin-top: 6px;
 }
+
+.ambiente {
+  margin-top: 10px;
+  padding: 12px;
+  border-radius: 10px;
+  text-align: center;
+  font-size: 13px;
+}
+
+.ambiente-texto {
+  font-weight: bold;
+  margin-bottom: 8px;
+}
+
+.ambiente-pruebas {
+  background: #fff4e5;
+  border: 1px solid #ffb74d;
+  color: #5d3700;
+}
+
+.ambiente-produccion {
+  background: #e8f5e9;
+  border: 1px solid #66bb6a;
+  color: #1b5e20;
+}
+
+.boton-peligro {
+  background: #d32f2f;
+}
+
+.boton-peligro:hover {
+  background: #b71c1c;
+}
