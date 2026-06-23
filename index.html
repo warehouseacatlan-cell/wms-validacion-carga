@@ -24,8 +24,6 @@
   <h1>SOP/WMS</h1>
   <h2>Validación de Carga vs Pedido</h2>
   <div id="estadoNube" class="resultado">Conectando con Supabase...</div>
-<div id="dashboardKPIs" class="dashboard-kpi"><div class="gauge-card">📊 Dashboard (próxima versión): velocímetros de avance, pedidos completos y pendientes.</div></div>
-
   <div id="panelAmbiente" class="ambiente ambiente-pruebas" style="display:none;">
     <div id="textoAmbiente" class="ambiente-texto">Modo: PRUEBAS</div>
     <button id="btnLimpiarPruebas" class="boton-peligro" type="button" onclick="limpiarDatosPrueba()">🧹 Limpiar datos de prueba</button>
@@ -80,15 +78,6 @@
       placeholder="Escanee SKU"
       autocomplete="off"
       inputmode="text">
-
-    <input
-      type="text"
-      id="scannerBufferInput"
-      autocomplete="off"
-      inputmode="none"
-      aria-hidden="true"
-      tabindex="-1"
-      style="position:absolute; left:-9999px; width:1px; height:1px; opacity:0;">
 
     <button onclick="iniciarEscanerCamara('auto')">Escanear QR</button>
     <button onclick="detenerEscanerCamara()">Cerrar cámara</button>
@@ -192,6 +181,7 @@
   <section class="seccion" id="pasoDashboard">
     <h3>Dashboard de pedidos</h3>
 
+    <div id="dashboardKPIs" class="dashboard-kpi"></div>
     <div id="dashboardPedidos"></div>
 
     <button onclick="mostrarSeccion('pasoExcel')">Regresar a carga de Excel</button>
@@ -223,6 +213,6 @@
 
 </div>
 
-<script src="script.js?v=scannerfix4"></script>
+<script src="script.js?v=zebra_dashboard_v4"></script>
 </body>
 </html>
