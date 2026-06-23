@@ -24,6 +24,8 @@
   <h1>SOP/WMS</h1>
   <h2>Validación de Carga vs Pedido</h2>
   <div id="estadoNube" class="resultado">Conectando con Supabase...</div>
+<div id="dashboardKPIs" class="dashboard-kpi"></div>
+
   <div id="panelAmbiente" class="ambiente ambiente-pruebas" style="display:none;">
     <div id="textoAmbiente" class="ambiente-texto">Modo: PRUEBAS</div>
     <button id="btnLimpiarPruebas" class="boton-peligro" type="button" onclick="limpiarDatosPrueba()">🧹 Limpiar datos de prueba</button>
@@ -71,7 +73,7 @@
   <section class="seccion" id="pasoValidacion">
     <h3>3. Validar Tarima</h3>
 
-    <label>Escanear QR o Código de Barras</label>
+    <label>Escanear QR o usar scanner Zebra</label>
     <input
       type="text"
       id="skuEscaneado"
@@ -86,7 +88,6 @@
 
     <label>Datos capturados</label>
     <textarea id="datosLeidosQR" rows="3" placeholder="Aquí aparecerá el contenido leído del QR o código de barras" readonly></textarea>
-
 
     <label>Lote</label>
     <input type="text" id="loteEscaneado" placeholder="Escanee lote" autocomplete="off">
@@ -181,7 +182,6 @@
   <section class="seccion" id="pasoDashboard">
     <h3>Dashboard de pedidos</h3>
 
-    <div id="dashboardKPIs" class="dashboard-kpi"></div>
     <div id="dashboardPedidos"></div>
 
     <button onclick="mostrarSeccion('pasoExcel')">Regresar a carga de Excel</button>
@@ -213,6 +213,6 @@
 
 </div>
 
-<script src="script.js?v=zebra_dashboard_v4"></script>
+<script src="script.js?v=zebra_dashboard_final"></script>
 </body>
 </html>
