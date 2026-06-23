@@ -260,6 +260,7 @@ async function cargarPedidosDesdeNube() {
     });
 
     mostrarPedidosDetectados();
+    pintarDashboardKPIs();
     mostrarEstadoNube(`✅ Nube actualizada | Pedidos: ${pedidos.length} | SKU: ${detalles.length}`);
     return pedidos;
   } catch (error) {
@@ -298,41 +299,40 @@ function extraerDatosDesdeTexto(valor) {
   if (!textoOriginal) return datos;
 
   // =====================================================
-  // NORMALIZADOR UNIVERSAL PARA QR / SCANNER ZEBRA / CÁMARA
-  // Soporta datos pegados:
-  // SKU=MAAG18LOTE=A0626/1532CAD=02-jun-2027ID=ENV-20260623-000042
-  // Y datos separados por líneas, |, ;, coma, JSON o GS1.
+  // LECTOR ZEBRA / QR / CAMARA
+  // Soporta datos pegados o separados:
+  // SKU=MAAG18LOTE=A0626/1532CAD=02-jun-2027ID=ENV-...
+  // SKU=MAAG18;LOTE=A0626/1532;CAD=02-jun-2027
+  // SKU=MAAG18|LOTE=A0626/1532|CAD=02-jun-2027
   // =====================================================
+  const compacto = extraerDatosClaveValor(textoOriginal);
 
-  const textoSinSaltos = textoOriginal
-    .replace(/\r/g, "")
-    .replace(/\n/g, "")
-    .trim();
+  if (compacto.sku || compacto.lote || compacto.caducidad || compacto.cantidad) {
+    datos.sku = normalizarSKU(compacto.sku);
+    datos.lote = String(compacto.lote || "").trim();
+    datos.caducidad = normalizarFecha(compacto.caducidad || "");
+    datos.cantidad = compacto.cantidad ? String(compacto.cantidad).replace(/[^0-9.]/g, "") : "";
 
-  // 1) Formato pegado con claves. Este es el caso del láser Zebra.
-  const mapaPegado = extraerCamposPegadosPorClave(textoSinSaltos);
-  if (mapaPegado.SKU || mapaPegado.LOTE || mapaPegado.CAD || mapaPegado.CADUCIDAD || mapaPegado.CANTIDAD || mapaPegado.CANT || mapaPegado.QTY) {
-    datos.sku = normalizarSKU(mapaPegado.SKU || mapaPegado.CODIGO || mapaPegado.CLAVE || "");
-    datos.lote = String(mapaPegado.LOTE || mapaPegado.LOT || mapaPegado.BATCH || "").trim();
-    datos.caducidad = normalizarFecha(mapaPegado.CAD || mapaPegado.CADUCIDAD || mapaPegado.EXP || mapaPegado.VENCE || "");
-    datos.cantidad = String(mapaPegado.CANTIDAD || mapaPegado.CANT || mapaPegado.QTY || mapaPegado.PIEZAS || mapaPegado.PZAS || "")
-      .replace(/[^0-9.]/g, "");
+    // Si el scanner puso "LOTE=" dentro del valor, lo limpiamos.
+    datos.lote = datos.lote
+      .replace(/^LOTE\s*[:=\-#]?\s*/i, "")
+      .replace(/\s*(CAD|CADUCIDAD|EXP|VENCE|VENCIMIENTO|ID)\s*[:=].*$/i, "")
+      .trim();
 
-    // Si al menos encontró algo útil, regresar de inmediato.
-    if (datos.sku || datos.lote || datos.caducidad || datos.cantidad) return datos;
+    return datos;
   }
 
-  // 2) JSON.
+  // Variante JSON
   try {
     const json = JSON.parse(textoOriginal);
     datos.sku = normalizarSKU(json.sku || json.SKU || json.codigo || json.codigoProducto || json.producto || "");
     datos.lote = String(json.lote || json.LOTE || json.batch || json.Batch || "").trim();
     datos.caducidad = normalizarFecha(json.caducidad || json.CADUCIDAD || json.exp || json.EXP || json.fechaCaducidad || "");
-    datos.cantidad = String(json.cantidad || json.CANTIDAD || json.qty || json.QTY || json.piezas || "").replace(/[^0-9.]/g, "");
+    datos.cantidad = json.cantidad || json.CANTIDAD || json.qty || json.QTY || json.piezas || "";
+    datos.cantidad = datos.cantidad ? String(datos.cantidad).replace(/[^0-9.]/g, "") : "";
     return datos;
   } catch (_) {}
 
-  // 3) Formato con separadores normales.
   const texto = textoOriginal
     .replace(/\r/g, "\n")
     .replace(/\|/g, "\n")
@@ -344,7 +344,6 @@ function extraerDatosDesdeTexto(valor) {
   datos.caducidad = normalizarFecha(extraerValorPorClaves(texto, ["CADUCIDAD", "CAD", "EXP", "VENCE", "VENCIMIENTO", "FECHA CADUCIDAD"]));
   datos.cantidad = extraerValorPorClaves(texto, ["CANTIDAD", "CANT", "QTY", "PIEZAS", "PZAS", "PZA", "PCS"]);
 
-  // 4) GS1 con identificadores.
   if (!datos.sku) {
     const ai240 = textoOriginal.match(/\(240\)([^()]+)/);
     const ai241 = textoOriginal.match(/\(241\)([^()]+)/);
@@ -368,7 +367,6 @@ function extraerDatosDesdeTexto(valor) {
     datos.cantidad = ai30?.[1] || ai37?.[1] || "";
   }
 
-  // 5) SKU entre corchetes o SKU plano.
   if (!datos.sku) {
     const entreCorchetes = textoOriginal.match(/\[(.*?)\]/);
     if (entreCorchetes) datos.sku = entreCorchetes[1];
@@ -377,24 +375,25 @@ function extraerDatosDesdeTexto(valor) {
   if (!datos.sku && /^[A-Za-z0-9._-]{3,40}$/.test(textoOriginal)) datos.sku = textoOriginal;
 
   datos.sku = normalizarSKU(datos.sku);
-  datos.lote = String(datos.lote || "").trim();
-  datos.caducidad = normalizarFecha(datos.caducidad);
+  datos.lote = String(datos.lote || "")
+    .replace(/^LOTE\s*[:=\-#]?\s*/i, "")
+    .replace(/\s*(CAD|CADUCIDAD|EXP|VENCE|VENCIMIENTO|ID)\s*[:=].*$/i, "")
+    .trim();
   datos.cantidad = datos.cantidad ? String(datos.cantidad).replace(/[^0-9.]/g, "") : "";
 
   return datos;
 }
 
-function extraerCamposPegadosPorClave(texto) {
-  const resultado = {};
-  const limpio = String(texto || "").trim();
-  if (!limpio) return resultado;
+function extraerDatosClaveValor(textoOriginal) {
+  const salida = { sku: "", lote: "", caducidad: "", cantidad: "" };
+  const texto = String(textoOriginal || "").trim();
+  if (!texto) return salida;
 
-  // Claves que pueden venir pegadas sin separador.
   const claves = [
-    "SKU", "CODIGO", "CÓDIGO", "CLAVE",
+    "SKU", "CODIGO", "CÓDIGO", "CLAVE", "PRODUCTO",
     "LOTE", "LOT", "BATCH",
     "CADUCIDAD", "CAD", "EXP", "VENCE", "VENCIMIENTO",
-    "CANTIDAD", "CANT", "QTY", "PIEZAS", "PZAS",
+    "CANTIDAD", "CANT", "QTY", "PIEZAS", "PZAS", "PCS",
     "ID", "FOLIO"
   ];
 
@@ -402,29 +401,41 @@ function extraerCamposPegadosPorClave(texto) {
     .map(c => c.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"))
     .join("|");
 
-  const re = new RegExp(`(${patronClaves})\\s*=`, "gi");
-  const encontrados = [];
-  let m;
+  const patron = new RegExp(`(${patronClaves})\\s*[:=]\\s*`, "gi");
+  const marcas = [];
+  let match;
 
-  while ((m = re.exec(limpio)) !== null) {
-    encontrados.push({
-      clave: m[1].toUpperCase().normalize("NFD").replace(/[\u0300-\u036f]/g, ""),
-      inicioValor: re.lastIndex,
-      inicioClave: m.index
+  while ((match = patron.exec(texto)) !== null) {
+    marcas.push({
+      clave: match[1].toUpperCase().normalize("NFD").replace(/[\u0300-\u036f]/g, ""),
+      inicioValor: patron.lastIndex,
+      inicioClave: match.index
     });
   }
 
-  for (let i = 0; i < encontrados.length; i++) {
-    const actual = encontrados[i];
-    const siguiente = encontrados[i + 1];
-    const fin = siguiente ? siguiente.inicioClave : limpio.length;
-    const valor = limpio.slice(actual.inicioValor, fin).trim();
-    resultado[actual.clave] = valor;
+  if (marcas.length === 0) return salida;
+
+  for (let i = 0; i < marcas.length; i++) {
+    const actual = marcas[i];
+    const siguiente = marcas[i + 1];
+    const valor = texto
+      .slice(actual.inicioValor, siguiente ? siguiente.inicioClave : texto.length)
+      .replace(/[|;,]+$/g, "")
+      .trim();
+
+    if (["SKU", "CODIGO", "CLAVE", "PRODUCTO"].includes(actual.clave) && !salida.sku) {
+      salida.sku = valor;
+    } else if (["LOTE", "LOT", "BATCH"].includes(actual.clave) && !salida.lote) {
+      salida.lote = valor;
+    } else if (["CADUCIDAD", "CAD", "EXP", "VENCE", "VENCIMIENTO"].includes(actual.clave) && !salida.caducidad) {
+      salida.caducidad = valor;
+    } else if (["CANTIDAD", "CANT", "QTY", "PIEZAS", "PZAS", "PCS"].includes(actual.clave) && !salida.cantidad) {
+      salida.cantidad = valor;
+    }
   }
 
-  return resultado;
+  return salida;
 }
-
 
 function extraerValorPorClaves(texto, claves) {
   for (const clave of claves) {
@@ -534,6 +545,7 @@ function convertirFechaGS1(valor) {
 function aplicarDatosEscaneados(valor, modo = "auto") {
   const texto = String(valor || "").trim();
   if (!texto) return;
+
   const datos = extraerDatosDesdeTexto(texto);
 
   if ($("datosLeidosQR")) $("datosLeidosQR").value = texto;
@@ -552,7 +564,10 @@ function aplicarDatosEscaneados(valor, modo = "auto") {
 
   if (datos.sku) $("skuEscaneado").value = datos.sku;
   if (datos.lote) $("loteEscaneado").value = datos.lote;
-  if (datos.caducidad) $("caducidadEscaneada").value = normalizarFecha(datos.caducidad);
+
+  const fechaCaducidad = normalizarFecha(datos.caducidad || "");
+  if (fechaCaducidad) $("caducidadEscaneada").value = fechaCaducidad;
+
   if (datos.cantidad) $("cantidadTarima").value = datos.cantidad;
 
   if (!datos.sku && texto) $("skuEscaneado").value = extraerSKUDesdeScan(texto);
@@ -1042,20 +1057,13 @@ async function verDashboardPedidos() {
 
     if (datosExcel.length === 0) {
       $("dashboardPedidos").innerHTML = "<p>No hay pedidos en Supabase.</p>";
-      mostrarDashboardKPIsGlobal(0, 0, 0, 0, 0, 0, 0);
       mostrarSeccion("pasoDashboard");
       return;
     }
 
     const pedidosUnicos = [...new Set(datosExcel.map(x => x.pedido))];
 
-    let completados = 0;
-    let parciales = 0;
-    let enProceso = 0;
-    let pendientes = 0;
-    let totalPedidoGlobal = 0;
-    let totalValidadoGlobal = 0;
-    let html = "";
+    let completados = 0, parciales = 0, enProceso = 0, pendientes = 0, html = "";
 
     pedidosUnicos.forEach(pedido => {
       const lineas = datosExcel.filter(x => x.pedido === pedido);
@@ -1063,11 +1071,7 @@ async function verDashboardPedidos() {
       const totalPedido = lineas.reduce((suma, item) => suma + Number(item.cantidadPedida || 0), 0);
       const totalValidado = lineas.reduce((suma, item) => suma + Number(item.cantidadValidada || 0), 0);
       const pendiente = totalPedido - totalValidado;
-      const avance = totalPedido > 0 ? Math.round((totalValidado / totalPedido) * 100) : 0;
       const estatus = lineas[0]?.estatus || obtenerEstatusPedido(pedido);
-
-      totalPedidoGlobal += totalPedido;
-      totalValidadoGlobal += totalValidado;
 
       if (estatus === "COMPLETADO") completados++;
       else if (estatus === "COMPLETADO PARCIAL") parciales++;
@@ -1081,7 +1085,6 @@ async function verDashboardPedidos() {
           <b>Total pedido:</b> ${totalPedido}<br>
           <b>Total validado:</b> ${totalValidado}<br>
           <b>Pendiente:</b> ${pendiente}<br>
-          <b>Avance:</b> ${avance}%<br>
           <b>Estatus:</b> ${estatus}<br>
           <button onclick="cargarPedidoDesdeDashboard('${escaparAtributo(pedido)}')">Abrir pedido</button>
           <button onclick="generarPDFDesdePedido('${escaparAtributo(pedido)}')">PDF</button>
@@ -1089,33 +1092,20 @@ async function verDashboardPedidos() {
       `;
     });
 
-    const avanceGlobal = totalPedidoGlobal > 0
-      ? Math.round((totalValidadoGlobal / totalPedidoGlobal) * 100)
-      : 0;
-
-    const porcentajeCompletados = pedidosUnicos.length > 0
-      ? Math.round((completados / pedidosUnicos.length) * 100)
-      : 0;
-
-    const porcentajeEnProceso = pedidosUnicos.length > 0
-      ? Math.round((enProceso / pedidosUnicos.length) * 100)
-      : 0;
-
-    const porcentajePendientes = pedidosUnicos.length > 0
-      ? Math.round((pendientes / pedidosUnicos.length) * 100)
-      : 0;
-
-    mostrarDashboardKPIsGlobal(
-      avanceGlobal,
-      porcentajeCompletados,
-      porcentajeEnProceso,
-      porcentajePendientes,
-      pedidosUnicos.length,
-      totalPedidoGlobal,
-      totalValidadoGlobal
-    );
+    const k = calcularKPIsDashboard();
 
     const resumen = `
+      <div style="
+        display:grid;
+        grid-template-columns:repeat(auto-fit, minmax(160px, 1fr));
+        gap:12px;
+        margin-bottom:14px;
+      ">
+        ${construirGaugeHTML("Avance general", k.avanceGeneral, `${k.totalValidado} / ${k.totalPedido}`)}
+        ${construirGaugeHTML("Pedidos completos", k.pctCompletados, `${k.completados} de ${k.pedidos}`)}
+        ${construirGaugeHTML("Pedidos pendientes", k.pctPendientes, `${k.pendientes} de ${k.pedidos}`)}
+      </div>
+
       <div class="resultado">
         <h4>Resumen general en nube</h4>
         <p>Pedidos encontrados: <b>${pedidosUnicos.length}</b></p>
@@ -1123,8 +1113,6 @@ async function verDashboardPedidos() {
         <p>Completados parciales: <b>${parciales}</b></p>
         <p>En proceso: <b>${enProceso}</b></p>
         <p>Pendientes: <b>${pendientes}</b></p>
-        <p>Total pedido: <b>${totalPedidoGlobal}</b></p>
-        <p>Total validado: <b>${totalValidadoGlobal}</b></p>
       </div>
     `;
 
@@ -1137,34 +1125,113 @@ async function verDashboardPedidos() {
 }
 
 
-function mostrarDashboardKPIsGlobal(avance, completados, enProceso, pendientes, totalPedidos, totalPedidoGlobal, totalValidadoGlobal) {
-  const contenedor = $("dashboardKPIs");
-  if (!contenedor) return;
+function construirGaugeHTML(titulo, valor, textoDetalle) {
+  const v = Math.max(0, Math.min(100, Math.round(Number(valor) || 0)));
 
-  contenedor.innerHTML = `
-    <div class="dashboard-gauges">
-      ${crearGaugeHTML("Avance general", avance, `${totalValidadoGlobal} / ${totalPedidoGlobal}`)}
-      ${crearGaugeHTML("Pedidos completos", completados, `${completados}%`)}
-      ${crearGaugeHTML("En proceso", enProceso, `${enProceso}%`)}
-      ${crearGaugeHTML("Pendientes", pendientes, `${pendientes}%`)}
-    </div>
-    <div class="dashboard-mini-resumen">
-      Pedidos: <b>${totalPedidos}</b> | Pedido total: <b>${totalPedidoGlobal}</b> | Validado: <b>${totalValidadoGlobal}</b>
+  return `
+    <div class="gauge-card" style="
+      background:#fff;
+      border-radius:14px;
+      padding:14px;
+      box-shadow:0 2px 10px rgba(0,0,0,.10);
+      text-align:center;
+      margin-bottom:12px;
+    ">
+      <div style="font-weight:bold; margin-bottom:8px;">${escaparHTML(titulo)}</div>
+
+      <div style="
+        width:150px;
+        height:75px;
+        margin:0 auto;
+        background:conic-gradient(#1e88e5 0deg ${v * 1.8}deg, #e6eef8 ${v * 1.8}deg 180deg, transparent 180deg 360deg);
+        border-radius:150px 150px 0 0;
+        position:relative;
+        overflow:hidden;
+      ">
+        <div style="
+          position:absolute;
+          left:22px;
+          top:22px;
+          width:106px;
+          height:53px;
+          background:white;
+          border-radius:106px 106px 0 0;
+        "></div>
+      </div>
+
+      <div style="font-size:24px; font-weight:bold; color:#1e3a5f; margin-top:6px;">${v}%</div>
+      <div style="font-size:12px; color:#555;">${escaparHTML(textoDetalle || "")}</div>
     </div>
   `;
 }
 
-function crearGaugeHTML(titulo, porcentaje, subtitulo) {
-  const valor = Math.max(0, Math.min(100, Number(porcentaje) || 0));
-  return `
-    <div class="gauge-card">
-      <div class="gauge" style="--valor:${valor}">
-        <div class="gauge-centro">
-          <span>${valor}%</span>
-        </div>
-      </div>
-      <div class="gauge-titulo">${escaparHTML(titulo)}</div>
-      <div class="gauge-subtitulo">${escaparHTML(subtitulo || "")}</div>
+function calcularKPIsDashboard() {
+  const pedidosUnicos = [...new Set(datosExcel.map(x => x.pedido))];
+
+  let totalPedido = 0;
+  let totalValidado = 0;
+  let completados = 0;
+  let parciales = 0;
+  let enProceso = 0;
+  let pendientes = 0;
+
+  pedidosUnicos.forEach(pedido => {
+    const lineas = datosExcel.filter(x => x.pedido === pedido);
+    const pedidoTotal = lineas.reduce((suma, item) => suma + Number(item.cantidadPedida || 0), 0);
+    const validadoTotal = lineas.reduce((suma, item) => suma + Number(item.cantidadValidada || 0), 0);
+    const estatus = lineas[0]?.estatus || obtenerEstatusPedido(pedido);
+
+    totalPedido += pedidoTotal;
+    totalValidado += validadoTotal;
+
+    if (estatus === "COMPLETADO") completados++;
+    else if (estatus === "COMPLETADO PARCIAL") parciales++;
+    else if (estatus === "EN PROCESO") enProceso++;
+    else pendientes++;
+  });
+
+  const avanceGeneral = totalPedido > 0 ? (totalValidado / totalPedido) * 100 : 0;
+  const pctCompletados = pedidosUnicos.length > 0 ? (completados / pedidosUnicos.length) * 100 : 0;
+  const pctPendientes = pedidosUnicos.length > 0 ? (pendientes / pedidosUnicos.length) * 100 : 0;
+
+  return {
+    pedidos: pedidosUnicos.length,
+    totalPedido,
+    totalValidado,
+    pendiente: totalPedido - totalValidado,
+    completados,
+    parciales,
+    enProceso,
+    pendientes,
+    avanceGeneral,
+    pctCompletados,
+    pctPendientes
+  };
+}
+
+function pintarDashboardKPIs() {
+  const contenedor = $("dashboardKPIs");
+  if (!contenedor) return;
+
+  const k = calcularKPIsDashboard();
+
+  contenedor.innerHTML = `
+    <div style="
+      display:grid;
+      grid-template-columns:repeat(auto-fit, minmax(160px, 1fr));
+      gap:12px;
+      margin:10px 0 16px 0;
+    ">
+      ${construirGaugeHTML("Avance general", k.avanceGeneral, `${k.totalValidado} / ${k.totalPedido}`)}
+      ${construirGaugeHTML("Pedidos completos", k.pctCompletados, `${k.completados} de ${k.pedidos}`)}
+      ${construirGaugeHTML("Pedidos pendientes", k.pctPendientes, `${k.pendientes} de ${k.pedidos}`)}
+    </div>
+
+    <div class="resultado" style="font-size:13px;">
+      Pedidos: <b>${k.pedidos}</b> |
+      En proceso: <b>${k.enProceso}</b> |
+      Parciales: <b>${k.parciales}</b> |
+      Pendiente total: <b>${k.pendiente}</b>
     </div>
   `;
 }
