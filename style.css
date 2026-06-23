@@ -160,3 +160,6 @@ select {
 .boton-peligro:hover {
   background: #b71c1c;
 }
+.dashboard-kpi{margin:10px 0}
+.gauge-card{background:#eef5ff;padding:10px;border-radius:8px;text-align:center}
+
