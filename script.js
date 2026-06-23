@@ -1462,10 +1462,116 @@ function escaparAtributo(valor) {
 }
 
 
+
+let modoAmbiente = "PRUEBAS";
+
+async function cargarModoAmbiente() {
+  try {
+    const registros = await supabaseGet("/ambiente?select=*&nombre=eq.SISTEMA&limit=1");
+
+    if (registros && registros.length > 0) {
+      modoAmbiente = String(registros[0].modo || "PRUEBAS").toUpperCase();
+    } else {
+      modoAmbiente = "PRUEBAS";
+    }
+  } catch (error) {
+    console.warn("No se pudo leer tabla ambiente. Usando modo PRUEBAS por seguridad.", error);
+    modoAmbiente = "PRUEBAS";
+  }
+
+  pintarPanelAmbiente();
+}
+
+function pintarPanelAmbiente() {
+  const panel = $("panelAmbiente");
+  const texto = $("textoAmbiente");
+  const boton = $("btnLimpiarPruebas");
+  const nota = $("notaAmbiente");
+
+  if (!panel || !texto || !boton) return;
+
+  panel.style.display = "block";
+
+  if (modoAmbiente === "PRODUCCION") {
+    panel.className = "ambiente ambiente-produccion";
+    texto.textContent = "🔒 Modo: PRODUCCIÓN";
+    boton.style.display = "none";
+    if (nota) nota.textContent = "La limpieza masiva está deshabilitada para proteger datos reales.";
+    return;
+  }
+
+  panel.className = "ambiente ambiente-pruebas";
+  texto.textContent = "🧪 Modo: PRUEBAS";
+  boton.style.display = "block";
+  if (nota) nota.textContent = "Puedes borrar todos los pedidos, validaciones y evidencias de prueba.";
+}
+
+async function limpiarDatosPrueba() {
+  if (modoAmbiente !== "PRUEBAS") {
+    alert("El sistema está en PRODUCCIÓN. No se permite borrar información.");
+    return;
+  }
+
+  const confirmar1 = confirm(
+    "ATENCIÓN: Esto borrará TODOS los datos de prueba en Supabase:\n\n" +
+    "- Pedidos\n" +
+    "- Detalle de pedidos\n" +
+    "- Validaciones\n" +
+    "- Evidencias\n" +
+    "- Cierres parciales\n\n" +
+    "¿Deseas continuar?"
+  );
+
+  if (!confirmar1) return;
+
+  const confirmar2 = prompt("Para confirmar escribe BORRAR");
+
+  if (String(confirmar2 || "").trim().toUpperCase() !== "BORRAR") {
+    alert("Limpieza cancelada.");
+    return;
+  }
+
+  try {
+    mostrarEstadoNube("⏳ Limpiando datos de prueba...");
+
+    await supabaseDelete("evidencias", "id=gt.0").catch(error => console.warn("evidencias", error));
+    await supabaseDelete("validaciones", "id=gt.0").catch(error => console.warn("validaciones", error));
+    await supabaseDelete("cierres_parciales", "id=gt.0").catch(error => console.warn("cierres_parciales", error));
+    await supabaseDelete("pedido_detalle", "id=gt.0").catch(error => console.warn("pedido_detalle", error));
+    await supabaseDelete("pedidos", "id=gt.0").catch(error => console.warn("pedidos", error));
+
+    datosExcel = [];
+    pedidoSeleccionado = [];
+    tarimasValidadas = [];
+    cierreParcial = null;
+    pedidoActualId = null;
+
+    if ($("resumenExcel")) $("resumenExcel").innerHTML = "";
+    if ($("selectorPedido")) $("selectorPedido").innerHTML = "";
+    if ($("dashboardPedidos")) $("dashboardPedidos").innerHTML = "";
+    if ($("historialValidaciones")) $("historialValidaciones").innerHTML = "";
+    if ($("avancePedido")) $("avancePedido").innerHTML = "";
+
+    limpiarFormularioTarima();
+    mostrarSeccion("pasoExcel");
+
+    mostrarEstadoNube("✅ Datos de prueba eliminados. Supabase quedó limpio.");
+    alert("Datos de prueba eliminados correctamente.");
+
+    await cargarPedidosDesdeNube();
+    pintarPanelAmbiente();
+  } catch (error) {
+    console.error(error);
+    mostrarEstadoNube("❌ Error limpiando datos de prueba.");
+    alert("No se pudieron limpiar los datos de prueba. Revisa permisos en Supabase.");
+  }
+}
+
 document.addEventListener("DOMContentLoaded", async () => {
   try {
     mostrarEstadoNube("⏳ Conectando con Supabase...");
     await probarConexionSupabase();
+    await cargarModoAmbiente();
     await cargarPedidosDesdeNube();
   } catch (error) {
     console.error("Error inicial cargando Supabase:", error);
