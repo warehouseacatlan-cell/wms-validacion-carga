@@ -25,6 +25,12 @@
   <h2>Validación de Carga vs Pedido</h2>
   <div id="estadoNube" class="resultado">Conectando con Supabase...</div>
 
+  <div id="panelAmbiente" class="ambiente ambiente-pruebas" style="display:none;">
+    <div id="textoAmbiente" class="ambiente-texto">Modo: PRUEBAS</div>
+    <button id="btnLimpiarPruebas" class="boton-peligro" type="button" onclick="limpiarDatosPrueba()">🧹 Limpiar datos de prueba</button>
+    <p id="notaAmbiente" class="nota">Este botón solo debe usarse mientras el sistema esté en pruebas.</p>
+  </div>
+
   <!-- PASO 1 -->
   <section class="seccion activa" id="pasoExcel">
     <h3>1. Cargar archivo Excel del pedido</h3>
@@ -214,6 +220,6 @@
 
 </div>
 
-<script src="script.js?v=evidencia2"></script>
+<script src="script.js?v=ambiente1"></script>
 </body>
 </html>
