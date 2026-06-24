@@ -71,33 +71,43 @@
   <section class="seccion" id="pasoValidacion">
     <h3>3. Validar Tarima</h3>
 
-    <label>Escanear QR o Código de Barras</label>
+    <p class="nota nota-scan">Escanee la etiqueta con Zebra/láser o use la cámara. El sistema separa SKU, lote y caducidad automáticamente.</p>
+
+    <label for="skuEscaneado">SKU</label>
     <textarea
       id="skuEscaneado"
       rows="1"
-      placeholder="Escanee QR o SKU"
+      class="campo-compacto campo-sku"
+      placeholder="SKU"
       autocomplete="off"
       inputmode="text"></textarea>
 
-    <button onclick="iniciarEscanerCamara('auto')">Escanear QR</button>
-    <button onclick="detenerEscanerCamara()">Cerrar cámara</button>
+    <div class="botones-dobles">
+      <button class="boton-secundario" onclick="iniciarEscanerCamara('auto')">📷 Escanear QR</button>
+      <button class="boton-gris" onclick="detenerEscanerCamara()">Cerrar cámara</button>
+    </div>
 
-    <div id="lectorCamara" style="width:100%; max-width:360px; margin-top:10px;"></div>
+    <div id="lectorCamara" style="width:100%; max-width:360px; margin:12px auto 0 auto;"></div>
 
-    <label>Datos capturados</label>
-    <textarea id="datosLeidosQR" rows="3" placeholder="Aquí aparecerá el contenido leído del QR o código de barras" readonly></textarea>
+    <label for="datosLeidosQR">Datos capturados del QR</label>
+    <textarea id="datosLeidosQR" class="campo-qr" rows="4" placeholder="Aquí aparecerá el contenido leído del QR o código de barras" readonly></textarea>
 
+    <div class="grid-campos">
+      <div>
+        <label for="loteEscaneado">Lote</label>
+        <input type="text" id="loteEscaneado" class="campo-compacto" placeholder="Lote" autocomplete="off">
+      </div>
 
-    <label>Lote</label>
-    <input type="text" id="loteEscaneado" placeholder="Escanee lote" autocomplete="off">
+      <div>
+        <label for="caducidadEscaneada">Caducidad</label>
+        <input type="date" id="caducidadEscaneada" class="campo-compacto">
+      </div>
+    </div>
 
-    <label>Caducidad</label>
-    <input type="date" id="caducidadEscaneada">
+    <label for="cantidadTarima">Cantidad por tarima</label>
+    <input type="number" id="cantidadTarima" class="campo-compacto campo-cantidad" placeholder="Capturar cantidad" min="1">
 
-    <label>Cantidad por tarima</label>
-    <input type="number" id="cantidadTarima" placeholder="Cantidad" min="1">
-
-    <button onclick="limpiarCapturaTarima()">Limpiar captura</button>
+    <button class="boton-limpiar" onclick="limpiarCapturaTarima()">Limpiar captura</button>
 
     <label>Evidencia 1</label>
     <button type="button" onclick="abrirCamaraEvidencia('fotoTarima1Camara')">Tomar foto evidencia 1</button>
@@ -144,8 +154,8 @@
       🖥️ En PC: puede seleccionar archivo. Máximo 2 fotografías por tarima.
     </p>
 
-    <button onclick="guardarTarima()">Guardar tarima validada</button>
-    <button onclick="verResumenValidacion()">Resumen del pedido</button>
+    <button class="boton-principal" onclick="guardarTarima()">✅ Guardar tarima validada</button>
+    <button class="boton-secundario" onclick="verResumenValidacion()">Resumen del pedido</button>
     <button onclick="verDashboardPedidos()">Dashboard de pedidos en nube</button>
     <button onclick="verHistorial()">Historial</button>
     <button onclick="cerrarPedidoParcial()">Cerrar pedido parcial por faltante</button>
