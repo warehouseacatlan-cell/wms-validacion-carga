@@ -559,7 +559,10 @@ function aplicarDatosEscaneados(valor, modo = "auto") {
 
   if (!$("loteEscaneado").value) $("loteEscaneado").focus();
   else if (!$("caducidadEscaneada").value) $("caducidadEscaneada").focus();
-  else if (!$("cantidadTarima").value) $("cantidadTarima").focus();
+  else if (!$("cantidadTarima").value) {
+    $("cantidadTarima").focus();
+    $("cantidadTarima").select?.();
+  }
   else if ($("fotoTarima1Camara")) $("fotoTarima1Camara").focus();
 }
 
@@ -729,23 +732,49 @@ async function validarDatosGenerales() {
 }
 
 async function guardarTarima() {
-  const sku = extraerSKUDesdeScan($("skuEscaneado").value);
-  const lote = $("loteEscaneado").value.trim();
-  const caducidad = $("caducidadEscaneada").value;
-  const cantidad = Number($("cantidadTarima").value);
+  // =====================================================
+  // VALIDACIÓN FINAL CORREGIDA
+  // El QR solo llena SKU, LOTE y CADUCIDAD.
+  // La CANTIDAD debe capturarla manualmente el operador.
+  // Antes el mensaje decía que faltaba todo, aunque realmente
+  // solo faltara la cantidad. Ahora indica exactamente qué falta.
+  // =====================================================
+  const campoSKU = $("skuEscaneado");
+  const campoLote = $("loteEscaneado");
+  const campoCaducidad = $("caducidadEscaneada");
+  const campoCantidad = $("cantidadTarima");
+
+  const sku = extraerSKUDesdeScan(campoSKU?.value || "");
+  const lote = String(campoLote?.value || "").trim();
+  const caducidad = String(campoCaducidad?.value || "").trim();
+  const cantidadTexto = String(campoCantidad?.value || "").trim().replace(",", ".");
+  const cantidad = Number(cantidadTexto);
+
+  const faltantes = [];
+  if (!sku) faltantes.push("SKU");
+  if (!lote) faltantes.push("lote");
+  if (!caducidad) faltantes.push("caducidad");
+  if (!cantidadTexto) faltantes.push("cantidad por tarima");
+
+  if (faltantes.length > 0) {
+    alert("Falta capturar: " + faltantes.join(", "));
+
+    if (!sku && campoSKU) campoSKU.focus();
+    else if (!lote && campoLote) campoLote.focus();
+    else if (!caducidad && campoCaducidad) campoCaducidad.focus();
+    else if (!cantidadTexto && campoCantidad) campoCantidad.focus();
+
+    return;
+  }
+
+  if (Number.isNaN(cantidad) || cantidad <= 0) {
+    alert("La cantidad por tarima debe ser un número mayor a cero");
+    if (campoCantidad) campoCantidad.focus();
+    return;
+  }
 
   const foto1 = obtenerArchivoEvidencia("fotoTarima1Camara", "fotoTarima1Galeria");
   const foto2 = obtenerArchivoEvidencia("fotoTarima2Camara", "fotoTarima2Galeria");
-
-  if (!sku || !lote || !caducidad || !cantidad) {
-    alert("Debe completar SKU, lote, caducidad y cantidad");
-    return;
-  }
-
-  if (cantidad <= 0) {
-    alert("La cantidad debe ser mayor a cero");
-    return;
-  }
 
   if (!foto1 && !foto2) {
     alert("Debe agregar al menos una evidencia fotográfica");
