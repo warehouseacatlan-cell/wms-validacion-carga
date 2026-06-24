@@ -238,3 +238,178 @@ select {
     grid-template-columns: repeat(4, minmax(0, 1fr));
   }
 }
+
+/* =====================================================
+   MEJORA VISUAL MOBILE / ZEBRA - Validación de tarimas
+   ===================================================== */
+:root {
+  --azul-pronua: #0f4c81;
+  --azul-accion: #1976d2;
+  --azul-oscuro: #0b2f4a;
+  --verde-ok: #1b8f5a;
+  --gris-borde: #d9e2ec;
+  --gris-fondo: #f3f7fb;
+}
+
+body {
+  background: linear-gradient(180deg, #eaf2fb 0%, #f7f9fc 45%, #eef3f8 100%);
+}
+
+.app {
+  padding: 12px;
+}
+
+h1 {
+  background: linear-gradient(135deg, var(--azul-oscuro), var(--azul-pronua));
+  color: #ffffff;
+  margin: -12px -12px 0 -12px;
+  padding: 18px 12px 6px 12px;
+  border-radius: 0 0 18px 18px;
+  letter-spacing: .5px;
+}
+
+h2 {
+  background: var(--azul-pronua);
+  color: rgba(255,255,255,.88);
+  margin: 0 -12px 14px -12px;
+  padding: 0 12px 16px 12px;
+  border-radius: 0 0 18px 18px;
+  font-size: 14px;
+}
+
+.seccion {
+  border: 1px solid #e3ebf5;
+  box-shadow: 0 8px 24px rgba(15, 76, 129, 0.12);
+}
+
+#pasoValidacion h3 {
+  margin-top: 0;
+  padding: 12px 14px;
+  border-radius: 12px;
+  color: #ffffff;
+  background: linear-gradient(135deg, var(--azul-pronua), var(--azul-accion));
+  text-align: center;
+}
+
+label {
+  display: block;
+  margin-top: 12px;
+  margin-bottom: 5px;
+  font-size: 12px;
+  font-weight: 700;
+  color: var(--azul-oscuro);
+  text-transform: uppercase;
+  letter-spacing: .4px;
+}
+
+input,
+textarea,
+select {
+  border: 1px solid var(--gris-borde);
+  background: #ffffff;
+  box-shadow: inset 0 1px 2px rgba(0,0,0,.03);
+  font-size: 15px;
+}
+
+input:focus,
+textarea:focus,
+select:focus {
+  outline: none;
+  border-color: var(--azul-accion);
+  box-shadow: 0 0 0 3px rgba(25,118,210,.14);
+}
+
+.campo-compacto {
+  min-height: 44px;
+  height: 44px;
+  padding: 10px 12px;
+}
+
+.campo-sku {
+  resize: none;
+  overflow: hidden;
+  font-weight: 700;
+  color: #132f4c;
+  background: #f8fbff;
+}
+
+.campo-qr {
+  min-height: 78px;
+  font-size: 12px;
+  line-height: 1.35;
+  background: #f8fbff;
+  color: #263238;
+}
+
+.campo-cantidad {
+  font-size: 16px;
+  font-weight: 700;
+}
+
+.grid-campos {
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: 0;
+}
+
+.botones-dobles {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 10px;
+  margin-top: 8px;
+}
+
+button {
+  min-height: 44px;
+  font-weight: 700;
+  box-shadow: 0 4px 10px rgba(25,118,210,.18);
+}
+
+.boton-principal {
+  background: linear-gradient(135deg, #149957, var(--verde-ok));
+}
+
+.boton-principal:hover {
+  background: #127849;
+}
+
+.boton-secundario {
+  background: linear-gradient(135deg, var(--azul-accion), #0f5fac);
+}
+
+.boton-gris {
+  background: #607d8b;
+}
+
+.boton-gris:hover {
+  background: #455a64;
+}
+
+.boton-limpiar {
+  background: #f59e0b;
+  color: #1f2937;
+}
+
+.boton-limpiar:hover {
+  background: #d97706;
+}
+
+.nota-scan {
+  background: #eef6ff;
+  border-left: 4px solid var(--azul-accion);
+  padding: 10px;
+  border-radius: 10px;
+  color: #234;
+}
+
+#estadoNube,
+.resultado {
+  border: 1px solid #dbeafe;
+}
+
+@media (min-width: 560px) {
+  .grid-campos {
+    grid-template-columns: 1fr 1fr;
+    gap: 12px;
+  }
+}
