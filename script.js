@@ -1796,8 +1796,19 @@ document.addEventListener("DOMContentLoaded", async () => {
       if (!texto) return;
 
       if (pareceQRDeEtiqueta(texto)) {
-        if (texto === ultimoQRProcesadoZebra) return;
+        // IMPORTANTE:
+        // No bloquear QR repetidos. Si se escanea el mismo QR otra vez,
+        // el lector ya dejó el texto completo dentro del campo SKU.
+        // Si regresamos sin procesar, el usuario ve todo el QR pegado en SKU.
         ultimoQRProcesadoZebra = texto;
+        aplicarDatosEscaneados(texto, "auto");
+        return;
+      }
+
+      // Refuerzo para lectores Zebra/láser que pegan el QR en una sola línea,
+      // con separadores distintos o incluso junto a un valor anterior del SKU.
+      const datosDetectados = extraerDatosDesdeTexto(texto);
+      if (datosDetectados.sku && (datosDetectados.lote || datosDetectados.caducidad || datosDetectados.cantidad)) {
         aplicarDatosEscaneados(texto, "auto");
         return;
       }
