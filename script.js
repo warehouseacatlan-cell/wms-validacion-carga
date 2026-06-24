@@ -1730,22 +1730,72 @@ document.addEventListener("DOMContentLoaded", async () => {
   const skuInput = $("skuEscaneado");
   const loteInput = $("loteEscaneado");
 
+  // =====================================================
+  // LECTOR FÍSICO ZEBRA / LÁSER COMO TECLADO
+  // NO toca el flujo de cámara. La cámara sigue entrando por
+  // procesarCodigoCamara() -> aplicarDatosEscaneados().
+  //
+  // Problema corregido:
+  // El lector físico manda el QR en varias líneas:
+  // SKU=MAAG18
+  // LOTE=A0626/1532
+  // CAD=02-jun-2027
+  // ID=ENV-20260618-000039
+  //
+  // Antes el Enter de la primera línea podía procesar solo SKU.
+  // Ahora esperamos a que termine el lector y procesamos el bloque completo.
+  // =====================================================
+  let timerLecturaZebra = null;
+  let ultimoQRProcesadoZebra = "";
+
+  function pareceQRDeEtiqueta(texto) {
+    const t = String(texto || "").toUpperCase();
+    return (
+      /SKU\s*=/.test(t) &&
+      /(LOTE|LOT|BATCH)\s*=/.test(t) &&
+      /(CAD|CADUCIDAD|EXP|VENCE|VENCIMIENTO)\s*=/.test(t)
+    );
+  }
+
+  function programarLecturaZebra() {
+    if (!skuInput) return;
+
+    clearTimeout(timerLecturaZebra);
+
+    timerLecturaZebra = setTimeout(() => {
+      const texto = String(skuInput.value || "").trim();
+      if (!texto) return;
+
+      if (pareceQRDeEtiqueta(texto)) {
+        if (texto === ultimoQRProcesadoZebra) return;
+        ultimoQRProcesadoZebra = texto;
+        aplicarDatosEscaneados(texto, "auto");
+        return;
+      }
+
+      // Escaneo/manual de solo SKU. No procesa si todavía parece lectura parcial.
+      if (!/[=\n\r{};|:]/.test(texto)) {
+        skuInput.value = extraerSKUDesdeScan(texto);
+      }
+    }, 450);
+  }
+
   if (skuInput) {
+    skuInput.addEventListener("input", programarLecturaZebra);
+
     skuInput.addEventListener("keydown", event => {
       if (event.key === "Enter") {
-        event.preventDefault();
-        aplicarDatosEscaneados(skuInput.value, "auto");
+        // En textarea dejamos que entre el salto de línea para capturar el QR completo.
+        // Solo evitamos acciones raras de formularios, aunque aquí no hay form.
+        setTimeout(programarLecturaZebra, 0);
       }
     });
 
-    skuInput.addEventListener("change", () => {
-      const texto = skuInput.value || "";
-      if (texto.includes("=") || texto.includes(":") || texto.includes(";") || texto.includes("|") || texto.includes("{")) {
-        aplicarDatosEscaneados(texto, "auto");
-      } else {
-        skuInput.value = extraerSKUDesdeScan(texto);
-      }
+    skuInput.addEventListener("paste", () => {
+      setTimeout(programarLecturaZebra, 0);
     });
+
+    skuInput.addEventListener("change", programarLecturaZebra);
   }
 
   if (loteInput) {
