@@ -72,12 +72,12 @@
     <h3>3. Validar Tarima</h3>
 
     <label>Escanear QR o Código de Barras</label>
-    <input
-      type="text"
+    <textarea
       id="skuEscaneado"
-      placeholder="Escanee SKU"
+      rows="1"
+      placeholder="Escanee QR o SKU"
       autocomplete="off"
-      inputmode="text">
+      inputmode="text"></textarea>
 
     <button onclick="iniciarEscanerCamara('auto')">Escanear QR</button>
     <button onclick="detenerEscanerCamara()">Cerrar cámara</button>
@@ -213,6 +213,6 @@
 
 </div>
 
-<script src="script.js?v=zebra_dashboard_v4"></script>
+<script src="script.js?v=zebra_dashboard_qr_zebra_ok"></script>
 </body>
 </html>
