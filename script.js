@@ -1745,7 +1745,31 @@ async function limpiarDatosPrueba() {
   }
 }
 
+
+// =====================================================
+// TEMA CLARO / OSCURO - UI V2
+// Solo cambia apariencia. No modifica lógica de operación.
+// =====================================================
+function aplicarTemaGuardado() {
+  const tema = localStorage.getItem("sopwms_tema") || "claro";
+  document.body.classList.toggle("tema-oscuro", tema === "oscuro");
+  const boton = $("btnTema");
+  if (boton) {
+    boton.textContent = tema === "oscuro" ? "☀️" : "🌙";
+    boton.title = tema === "oscuro" ? "Cambiar a modo claro" : "Cambiar a modo oscuro";
+  }
+}
+
+function alternarTema() {
+  const temaActual = document.body.classList.contains("tema-oscuro") ? "oscuro" : "claro";
+  const temaNuevo = temaActual === "oscuro" ? "claro" : "oscuro";
+  localStorage.setItem("sopwms_tema", temaNuevo);
+  aplicarTemaGuardado();
+}
+
 document.addEventListener("DOMContentLoaded", async () => {
+  aplicarTemaGuardado();
+
   try {
     mostrarEstadoNube("⏳ Conectando con Supabase...");
     await probarConexionSupabase();
@@ -1847,3 +1871,168 @@ document.addEventListener("DOMContentLoaded", async () => {
     });
   }
 });
+// =====================================================
+// EXPORTACIÓN DE BASE DE DATOS A EXCEL PARA REPORTES
+// No modifica la operación: solo consulta Supabase y descarga .xlsx
+// =====================================================
+function formatearFechaExcel(valor) {
+  if (!valor) return "";
+  const fecha = new Date(valor);
+  if (Number.isNaN(fecha.getTime())) return String(valor);
+  return fecha.toLocaleString("es-MX");
+}
+
+function numeroExcel(valor) {
+  const n = Number(valor || 0);
+  return Number.isFinite(n) ? n : 0;
+}
+
+function nombreArchivoSeguro(valor) {
+  return String(valor || "")
+    .replace(/[^a-zA-Z0-9_-]/g, "_")
+    .replace(/_+/g, "_")
+    .substring(0, 80);
+}
+
+async function exportarBaseDatosExcel() {
+  try {
+    if (typeof XLSX === "undefined") {
+      alert("No se encontró la librería de Excel. Revise conexión a internet o el CDN XLSX.");
+      return;
+    }
+
+    const confirmar = confirm(
+      "Se descargará un Excel con la base de datos actual para reportes:\n\n" +
+      "• Resumen de pedidos\n" +
+      "• Detalle por SKU\n" +
+      "• Validaciones / tarimas\n" +
+      "• Cierres parciales\n\n" +
+      "¿Deseas continuar?"
+    );
+    if (!confirmar) return;
+
+    const pedidos = await supabaseGet("/pedidos?select=*&order=fecha_creacion.desc");
+    const detalles = await supabaseGet("/pedido_detalle?select=*");
+    const validaciones = await supabaseGet("/validaciones?select=*&order=fecha_validacion.desc");
+
+    let cierres = [];
+    try {
+      cierres = await supabaseGet("/cierres_parciales?select=*&order=fecha_cierre.desc");
+    } catch (error) {
+      console.warn("No se pudo consultar cierres_parciales", error);
+      cierres = [];
+    }
+
+    let evidencias = [];
+    try {
+      evidencias = await supabaseGet("/evidencias?select=id,validacion_id,nombre_archivo");
+    } catch (error) {
+      console.warn("No se pudo consultar evidencias", error);
+      evidencias = [];
+    }
+
+    const pedidoPorId = new Map(pedidos.map(p => [p.id, p]));
+    const detallePorPedido = new Map();
+    detalles.forEach(d => {
+      if (!detallePorPedido.has(d.pedido_id)) detallePorPedido.set(d.pedido_id, []);
+      detallePorPedido.get(d.pedido_id).push(d);
+    });
+
+    const evidenciaPorValidacion = new Map();
+    evidencias.forEach(e => {
+      if (!evidenciaPorValidacion.has(e.validacion_id)) evidenciaPorValidacion.set(e.validacion_id, []);
+      evidenciaPorValidacion.get(e.validacion_id).push(e.nombre_archivo || `Evidencia ${e.id}`);
+    });
+
+    const validacionesPorPedido = new Map();
+    validaciones.forEach(v => {
+      if (!validacionesPorPedido.has(v.pedido_id)) validacionesPorPedido.set(v.pedido_id, []);
+      validacionesPorPedido.get(v.pedido_id).push(v);
+    });
+
+    const resumenPedidos = pedidos.map(p => {
+      const det = detallePorPedido.get(p.id) || [];
+      const vals = validacionesPorPedido.get(p.id) || [];
+      const totalPedido = det.reduce((s, d) => s + numeroExcel(d.cantidad_pedida), 0);
+      const totalValidado = det.reduce((s, d) => s + numeroExcel(d.cantidad_validada), 0);
+      const pendiente = totalPedido - totalValidado;
+      const avance = totalPedido > 0 ? totalValidado / totalPedido : 0;
+
+      return {
+        Pedido: p.pedido || "",
+        Cliente: p.cliente || "",
+        Chofer: p.chofer || "",
+        Validador: p.validador || "",
+        Estatus: p.estatus || "",
+        "Fecha creación": formatearFechaExcel(p.fecha_creacion),
+        "Fecha cierre": formatearFechaExcel(p.fecha_cierre),
+        "SKU líneas": det.length,
+        "Tarimas validadas": vals.length,
+        "Cantidad pedida": totalPedido,
+        "Cantidad validada": totalValidado,
+        Pendiente: pendiente,
+        "Avance %": Math.round(avance * 10000) / 100
+      };
+    });
+
+    const detallePedido = detalles.map(d => {
+      const p = pedidoPorId.get(d.pedido_id) || {};
+      const pedida = numeroExcel(d.cantidad_pedida);
+      const validada = numeroExcel(d.cantidad_validada);
+      const pendiente = pedida - validada;
+      return {
+        Pedido: p.pedido || "",
+        Cliente: p.cliente || "",
+        SKU: d.sku || "",
+        Descripción: d.descripcion || "",
+        "Cantidad pedida": pedida,
+        "Cantidad validada": validada,
+        Pendiente: pendiente,
+        "Estatus línea": pendiente <= 0 ? "COMPLETA" : validada > 0 ? "PARCIAL" : "PENDIENTE"
+      };
+    });
+
+    const validacionesTarimas = validaciones.map(v => {
+      const p = pedidoPorId.get(v.pedido_id) || {};
+      const det = (detallePorPedido.get(v.pedido_id) || []).find(d => normalizarSKU(d.sku) === normalizarSKU(v.sku)) || {};
+      const evs = evidenciaPorValidacion.get(v.id) || [];
+      return {
+        Pedido: p.pedido || "",
+        Cliente: p.cliente || "",
+        SKU: v.sku || "",
+        Descripción: det.descripcion || "",
+        Lote: v.lote || "",
+        Caducidad: v.caducidad || "",
+        Cantidad: numeroExcel(v.cantidad),
+        Usuario: v.usuario || "",
+        "Fecha validación": formatearFechaExcel(v.fecha_validacion),
+        "ID validación": v.id || "",
+        "Evidencias": evs.length,
+        "Archivos evidencia": evs.join(" | ")
+      };
+    });
+
+    const cierresParciales = cierres.map(c => {
+      const p = pedidoPorId.get(c.pedido_id) || {};
+      return {
+        Pedido: p.pedido || c.pedido || "",
+        Cliente: p.cliente || "",
+        Motivo: c.motivo || c.observaciones || "",
+        Usuario: c.usuario || "",
+        "Fecha cierre": formatearFechaExcel(c.fecha_cierre || c.created_at)
+      };
+    });
+
+    const wb = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(resumenPedidos), "Resumen pedidos");
+    XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(detallePedido), "Detalle SKU");
+    XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(validacionesTarimas), "Validaciones tarimas");
+    XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(cierresParciales), "Cierres parciales");
+
+    const fecha = new Date().toISOString().slice(0, 10);
+    XLSX.writeFile(wb, nombreArchivoSeguro(`BD_SOP_WMS_${fecha}.xlsx`));
+  } catch (error) {
+    console.error(error);
+    alert("No se pudo exportar la base de datos a Excel. Revisa conexión o permisos de Supabase.");
+  }
+}
