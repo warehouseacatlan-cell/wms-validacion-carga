@@ -31,7 +31,7 @@
     </div>
     <button id="btnTema" class="theme-toggle" type="button" onclick="alternarTema()" aria-label="Cambiar tema">🌙</button>
   </header>
-  <div id="estadoNube" class="resultado">Conectando con Supabase...</div>
+  <div id="estadoNube" class="resultado" style="display:none;">Conectando con Supabase...</div>
   <div id="panelAmbiente" class="ambiente ambiente-pruebas" style="display:none;">
     <div id="textoAmbiente" class="ambiente-texto">Modo: PRUEBAS</div>
     <button id="btnLimpiarPruebas" class="boton-peligro" type="button" onclick="limpiarDatosPrueba()">🧹 Limpiar datos de prueba</button>
@@ -104,6 +104,9 @@
 
     <label for="datosLeidosQR">Datos capturados del QR</label>
     <textarea id="datosLeidosQR" class="campo-qr" rows="4" placeholder="Aquí aparecerá el contenido leído del QR o código de barras" readonly></textarea>
+
+    <label for="idEtiquetaEscaneada">ID de etiqueta</label>
+    <input type="text" id="idEtiquetaEscaneada" class="campo-compacto" placeholder="ID leído del QR" readonly>
 
     <div class="grid-campos">
       <div>
@@ -228,7 +231,7 @@
       <option value="mes">Este mes</option>
     </select>
 
-    <button onclick="verHistorial()">Buscar</button>
+    <button onclick="verHistorial(true)">Buscar</button>
     <button class="boton-secundario" onclick="exportarBaseDatosExcel()">📊 Exportar BD Excel</button>
 
     <div id="historialValidaciones"></div>
