@@ -21,8 +21,16 @@
 
 <div class="app">
 
-  <h1>SOP/WMS</h1>
-  <h2>Validación de Carga vs Pedido</h2>
+  <header class="app-header">
+    <div class="brand-block">
+      <div class="brand-badge">360</div>
+      <div>
+        <h1>SOP/WMS</h1>
+        <h2>Validación de Carga vs Pedido</h2>
+      </div>
+    </div>
+    <button id="btnTema" class="theme-toggle" type="button" onclick="alternarTema()" aria-label="Cambiar tema">🌙</button>
+  </header>
   <div id="estadoNube" class="resultado">Conectando con Supabase...</div>
   <div id="panelAmbiente" class="ambiente ambiente-pruebas" style="display:none;">
     <div id="textoAmbiente" class="ambiente-texto">Modo: PRUEBAS</div>
@@ -39,8 +47,11 @@
       id="archivoExcel"
       accept=".xlsx,.xls,.csv,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet,application/vnd.ms-excel">
 
-    <button onclick="leerExcel()">Cargar Excel y subir a nube</button>
-    <button onclick="borrarTodoLocal()">Limpiar pantalla local</button>
+    <div class="acciones-grid">
+      <button onclick="leerExcel()">📂 Cargar Excel</button>
+      <button class="boton-gris" onclick="borrarTodoLocal()">🧹 Limpiar pantalla</button>
+      <button class="boton-secundario" onclick="exportarBaseDatosExcel()">📊 Exportar BD Excel</button>
+    </div>
     
 
     <div id="resumenExcel" class="resultado"></div>
@@ -63,8 +74,10 @@
     <label>Validador</label>
     <input type="text" id="validador" placeholder="Nombre del validador">
 
-    <button onclick="validarDatosGenerales()">Continuar validación</button>
-    <button onclick="verDashboardPedidos()">Dashboard de pedidos en nube</button>
+    <div class="acciones-grid">
+      <button class="boton-principal" onclick="validarDatosGenerales()">✅ Continuar</button>
+      <button class="boton-secundario" onclick="verDashboardPedidos()">📊 Dashboard</button>
+    </div>
   </section>
 
   <!-- PASO 3 -->
@@ -156,8 +169,9 @@
 
     <button class="boton-principal" onclick="guardarTarima()">✅ Guardar tarima validada</button>
     <button class="boton-secundario" onclick="verResumenValidacion()">Resumen del pedido</button>
-    <button onclick="verDashboardPedidos()">Dashboard de pedidos en nube</button>
+    <button onclick="verDashboardPedidos()">Dashboard de pedidos</button>
     <button onclick="verHistorial()">Historial</button>
+    <button class="boton-secundario" onclick="exportarBaseDatosExcel()">📊 Exportar BD Excel</button>
     <button onclick="cerrarPedidoParcial()">Cerrar pedido parcial por faltante</button>
   </section>
 
@@ -172,7 +186,7 @@
     <button onclick="generarPDF()">Generar PDF</button>
     <button onclick="cerrarPedidoParcial()">Cerrar pedido parcial por faltante</button>
     <button onclick="limpiarMemoriaPedido()">Limpiar memoria del pedido</button>
-    <button onclick="verDashboardPedidos()">Dashboard de pedidos en nube</button>
+    <button onclick="verDashboardPedidos()">Dashboard de pedidos</button>
   </section>
 
   <!-- RESUMEN -->
@@ -196,6 +210,7 @@
 
     <button onclick="mostrarSeccion('pasoExcel')">Regresar a carga de Excel</button>
     <button onclick="verHistorial()">Ver historial</button>
+    <button class="boton-secundario" onclick="exportarBaseDatosExcel()">📊 Exportar BD Excel</button>
   </section>
 
   <!-- HISTORIAL -->
@@ -214,6 +229,7 @@
     </select>
 
     <button onclick="verHistorial()">Buscar</button>
+    <button class="boton-secundario" onclick="exportarBaseDatosExcel()">📊 Exportar BD Excel</button>
 
     <div id="historialValidaciones"></div>
 
@@ -223,6 +239,6 @@
 
 </div>
 
-<script src="script.js?v=zebra_dashboard_qr_zebra_ok"></script>
+<script src="script.js?v=zebra_dashboard_qr_zebra_excel_export_ui_v2"></script>
 </body>
 </html>
