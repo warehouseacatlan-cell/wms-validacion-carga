@@ -294,7 +294,7 @@ function extraerSKUDesdeScan(valor) {
 
 function extraerDatosDesdeTexto(valor) {
   const textoOriginal = String(valor || "").trim();
-  const datos = { sku: "", lote: "", caducidad: "", cantidad: "" };
+  const datos = { sku: "", lote: "", caducidad: "", cantidad: "", idEtiqueta: "" };
   if (!textoOriginal) return datos;
 
   // =====================================================
@@ -311,15 +311,16 @@ function extraerDatosDesdeTexto(valor) {
 
   // 1) Formato pegado con claves. Este es el caso del láser Zebra.
   const mapaPegado = extraerCamposPegadosPorClave(textoSinSaltos);
-  if (mapaPegado.SKU || mapaPegado.LOTE || mapaPegado.CAD || mapaPegado.CADUCIDAD || mapaPegado.CANTIDAD || mapaPegado.CANT || mapaPegado.QTY) {
+  if (mapaPegado.SKU || mapaPegado.LOTE || mapaPegado.CAD || mapaPegado.CADUCIDAD || mapaPegado.CANTIDAD || mapaPegado.CANT || mapaPegado.QTY || mapaPegado.ID || mapaPegado.FOLIO) {
     datos.sku = normalizarSKU(mapaPegado.SKU || mapaPegado.CODIGO || mapaPegado.CLAVE || "");
     datos.lote = String(mapaPegado.LOTE || mapaPegado.LOT || mapaPegado.BATCH || "").trim();
     datos.caducidad = normalizarFecha(mapaPegado.CAD || mapaPegado.CADUCIDAD || mapaPegado.EXP || mapaPegado.VENCE || "");
     datos.cantidad = String(mapaPegado.CANTIDAD || mapaPegado.CANT || mapaPegado.QTY || mapaPegado.PIEZAS || mapaPegado.PZAS || "")
       .replace(/[^0-9.]/g, "");
+    datos.idEtiqueta = normalizarIdEtiqueta(mapaPegado.ID || mapaPegado.FOLIO || "");
 
     // Si al menos encontró algo útil, regresar de inmediato.
-    if (datos.sku || datos.lote || datos.caducidad || datos.cantidad) return datos;
+    if (datos.sku || datos.lote || datos.caducidad || datos.cantidad || datos.idEtiqueta) return datos;
   }
 
   // 2) JSON.
@@ -329,6 +330,7 @@ function extraerDatosDesdeTexto(valor) {
     datos.lote = String(json.lote || json.LOTE || json.batch || json.Batch || "").trim();
     datos.caducidad = normalizarFecha(json.caducidad || json.CADUCIDAD || json.exp || json.EXP || json.fechaCaducidad || "");
     datos.cantidad = String(json.cantidad || json.CANTIDAD || json.qty || json.QTY || json.piezas || "").replace(/[^0-9.]/g, "");
+    datos.idEtiqueta = normalizarIdEtiqueta(json.id || json.ID || json.folio || json.FOLIO || json.idEtiqueta || json.ID_ETIQUETA || "");
     return datos;
   } catch (_) {}
 
@@ -343,6 +345,7 @@ function extraerDatosDesdeTexto(valor) {
   datos.lote = extraerValorPorClaves(texto, ["LOTE", "LOT", "BATCH"]);
   datos.caducidad = normalizarFecha(extraerValorPorClaves(texto, ["CADUCIDAD", "CAD", "EXP", "VENCE", "VENCIMIENTO", "FECHA CADUCIDAD"]));
   datos.cantidad = extraerValorPorClaves(texto, ["CANTIDAD", "CANT", "QTY", "PIEZAS", "PZAS", "PZA", "PCS"]);
+  datos.idEtiqueta = normalizarIdEtiqueta(extraerValorPorClaves(texto, ["ID", "FOLIO", "ID ETIQUETA", "ID_ETIQUETA"]));
 
   // 4) GS1 con identificadores.
   if (!datos.sku) {
@@ -380,6 +383,7 @@ function extraerDatosDesdeTexto(valor) {
   datos.lote = String(datos.lote || "").trim();
   datos.caducidad = normalizarFecha(datos.caducidad);
   datos.cantidad = datos.cantidad ? String(datos.cantidad).replace(/[^0-9.]/g, "") : "";
+  datos.idEtiqueta = normalizarIdEtiqueta(datos.idEtiqueta);
 
   return datos;
 }
@@ -425,6 +429,13 @@ function extraerCamposPegadosPorClave(texto) {
   return resultado;
 }
 
+function normalizarIdEtiqueta(valor) {
+  return String(valor || "")
+    .trim()
+    .replace(/^(ID|FOLIO|ID ETIQUETA|ID_ETIQUETA)\s*[:=\-#]?\s*/i, "")
+    .replace(/\s+/g, "")
+    .toUpperCase();
+}
 
 function extraerValorPorClaves(texto, claves) {
   for (const clave of claves) {
@@ -554,6 +565,7 @@ function aplicarDatosEscaneados(valor, modo = "auto") {
   if (datos.lote) $("loteEscaneado").value = datos.lote;
   if (datos.caducidad) $("caducidadEscaneada").value = normalizarFecha(datos.caducidad);
   if (datos.cantidad) $("cantidadTarima").value = datos.cantidad;
+  if (datos.idEtiqueta && $("idEtiquetaEscaneada")) $("idEtiquetaEscaneada").value = datos.idEtiqueta;
 
   if (!datos.sku && texto) $("skuEscaneado").value = extraerSKUDesdeScan(texto);
 
@@ -593,7 +605,9 @@ function consolidarSKUs(datos) {
 }
 
 function mostrarPedidosDetectados() {
-  const pedidosUnicos = [...new Set(datosExcel.map(x => x.pedido))];
+  const pedidosUnicos = [...new Set(datosExcel
+    .filter(x => ["", "PENDIENTE", "EN PROCESO"].includes(String(x.estatus || "PENDIENTE").toUpperCase()))
+    .map(x => x.pedido))];
 
   $("resumenExcel").innerHTML = `
     <h4>Pedidos disponibles</h4>
@@ -685,6 +699,7 @@ async function cargarTarimasPedido(pedidoId, pedidoTexto) {
     const ev = evidencias.filter(e => e.validacion_id === v.id).sort((a,b) => a.id - b.id);
     return {
       validacionId: v.id,
+      idEtiqueta: v.id_etiqueta || "",
       pedido: pedidoTexto,
       cliente: linea.cliente || $("cliente")?.value || "",
       sku: v.sku,
@@ -731,6 +746,52 @@ async function validarDatosGenerales() {
   enfocarSKU();
 }
 
+function obtenerRegistroEtiquetasLocal() {
+  try {
+    return JSON.parse(localStorage.getItem("sopwms_ids_etiquetas_validadas") || "[]");
+  } catch (_) {
+    return [];
+  }
+}
+
+function guardarRegistroEtiquetaLocal(registro) {
+  if (!registro?.idEtiqueta) return;
+  const registros = obtenerRegistroEtiquetasLocal();
+  if (!registros.some(r => normalizarIdEtiqueta(r.idEtiqueta) === normalizarIdEtiqueta(registro.idEtiqueta))) {
+    registros.push(registro);
+    localStorage.setItem("sopwms_ids_etiquetas_validadas", JSON.stringify(registros.slice(-10000)));
+  }
+}
+
+async function buscarEtiquetaDuplicada(idEtiqueta) {
+  const id = normalizarIdEtiqueta(idEtiqueta);
+  if (!id) return null;
+
+  const local = obtenerRegistroEtiquetasLocal().find(r => normalizarIdEtiqueta(r.idEtiqueta) === id);
+  if (local) return { origen: "local", ...local };
+
+  // Si Supabase ya tiene una columna id_etiqueta, se usa para bloqueo global entre equipos.
+  // Si la columna aún no existe, no se rompe la app: queda activo el bloqueo local.
+  try {
+    const encontrados = await supabaseGet(`/validaciones?id_etiqueta=eq.${encodeURIComponent(id)}&select=*,pedidos(pedido,cliente)&limit=1`);
+    if (encontrados && encontrados.length > 0) {
+      const v = encontrados[0];
+      return {
+        origen: "nube",
+        idEtiqueta: id,
+        pedido: v.pedidos?.pedido || v.pedido || "",
+        cliente: v.pedidos?.cliente || "",
+        sku: v.sku || "",
+        fechaHora: v.fecha_validacion ? new Date(v.fecha_validacion).toLocaleString() : ""
+      };
+    }
+  } catch (error) {
+    console.warn("Validación global de ID no disponible; se usará bloqueo local.", error);
+  }
+
+  return null;
+}
+
 async function guardarTarima() {
   // =====================================================
   // VALIDACIÓN FINAL CORREGIDA
@@ -749,6 +810,11 @@ async function guardarTarima() {
   const caducidad = String(campoCaducidad?.value || "").trim();
   const cantidadTexto = String(campoCantidad?.value || "").trim().replace(",", ".");
   const cantidad = Number(cantidadTexto);
+  let idEtiqueta = normalizarIdEtiqueta($("idEtiquetaEscaneada")?.value || "");
+  if (!idEtiqueta) {
+    idEtiqueta = normalizarIdEtiqueta(extraerDatosDesdeTexto($("datosLeidosQR")?.value || campoSKU?.value || "").idEtiqueta);
+    if (idEtiqueta && $("idEtiquetaEscaneada")) $("idEtiquetaEscaneada").value = idEtiqueta;
+  }
 
   const faltantes = [];
   if (!sku) faltantes.push("SKU");
@@ -794,6 +860,22 @@ async function guardarTarima() {
     return;
   }
 
+  if (idEtiqueta) {
+    const duplicada = await buscarEtiquetaDuplicada(idEtiqueta);
+    if (duplicada) {
+      alert(
+        "ERROR: Esta etiqueta ya fue escaneada.\n\n" +
+        "ID etiqueta: " + idEtiqueta + "\n" +
+        "Pedido: " + (duplicada.pedido || "No disponible") + "\n" +
+        "SKU: " + (duplicada.sku || "No disponible") + "\n" +
+        "Fecha: " + (duplicada.fechaHora || "No disponible") + "\n\n" +
+        "No se permite validar la misma etiqueta en este u otro pedido."
+      );
+      limpiarCapturaTarima();
+      return;
+    }
+  }
+
   const nuevoTotal = Number(lineaPedido.cantidadValidada || 0) + cantidad;
 
   if (nuevoTotal > Number(lineaPedido.cantidadPedida || 0)) {
@@ -823,14 +905,22 @@ async function guardarTarima() {
   try {
     const usuario = $("validador").value.trim() || "Sin usuario";
 
-    const validacionCreada = await supabasePost("validaciones", {
+    let validacionCreada;
+    const payloadValidacion = {
       pedido_id: pedidoActualId || lineaPedido.pedidoId,
       sku: lineaPedido.sku,
       lote,
       caducidad,
       cantidad,
       usuario
-    });
+    };
+
+    try {
+      validacionCreada = await supabasePost("validaciones", idEtiqueta ? { ...payloadValidacion, id_etiqueta: idEtiqueta } : payloadValidacion);
+    } catch (error) {
+      console.warn("No se pudo guardar id_etiqueta en Supabase; se guarda validación normal y bloqueo local.", error);
+      validacionCreada = await supabasePost("validaciones", payloadValidacion);
+    }
 
     const validacionId = validacionCreada[0].id;
 
@@ -862,6 +952,7 @@ async function guardarTarima() {
 
     tarimasValidadas.push({
       validacionId,
+      idEtiqueta,
       pedido: lineaPedido.pedido,
       cliente: lineaPedido.cliente,
       sku: lineaPedido.sku,
@@ -874,6 +965,16 @@ async function guardarTarima() {
       foto2Nombre: foto2 ? foto2.name : "",
       foto1Base64,
       foto2Base64
+    });
+
+    if (idEtiqueta) guardarRegistroEtiquetaLocal({
+      idEtiqueta,
+      pedido: lineaPedido.pedido,
+      cliente: lineaPedido.cliente,
+      sku: lineaPedido.sku,
+      lote,
+      caducidad,
+      fechaHora: new Date().toLocaleString()
     });
 
     const estatus = pedidoCompletado() ? "COMPLETADO" : "EN PROCESO";
@@ -904,6 +1005,7 @@ function limpiarFormularioTarima() {
   $("cantidadTarima").value = "";
   limpiarEvidencias();
   if ($("datosLeidosQR")) $("datosLeidosQR").value = "";
+  if ($("idEtiquetaEscaneada")) $("idEtiquetaEscaneada").value = "";
   enfocarSKU();
 }
 
@@ -913,6 +1015,7 @@ function limpiarCapturaTarima() {
   $("caducidadEscaneada").value = "";
   $("cantidadTarima").value = "";
   if ($("datosLeidosQR")) $("datosLeidosQR").value = "";
+  if ($("idEtiquetaEscaneada")) $("idEtiquetaEscaneada").value = "";
   enfocarSKU();
 }
 
@@ -1144,20 +1247,10 @@ async function verDashboardPedidos() {
       totalValidadoGlobal
     );
 
-    const resumen = `
-      <div class="resultado">
-        <h4>Resumen general en nube</h4>
-        <p>Pedidos encontrados: <b>${pedidosUnicos.length}</b></p>
-        <p>Completados: <b>${completados}</b></p>
-        <p>Completados parciales: <b>${parciales}</b></p>
-        <p>En proceso: <b>${enProceso}</b></p>
-        <p>Pendientes: <b>${pendientes}</b></p>
-        <p>Total pedido: <b>${totalPedidoGlobal}</b></p>
-        <p>Total validado: <b>${totalValidadoGlobal}</b></p>
-      </div>
+    $("dashboardPedidos").innerHTML = `
+      <button class="boton-secundario" onclick="alternarDetalleDashboard()">Ver detalle de pedidos</button>
+      <div id="detalleDashboardPedidos" style="display:none;">${html}</div>
     `;
-
-    $("dashboardPedidos").innerHTML = resumen + html;
     mostrarSeccion("pasoDashboard");
   } catch (error) {
     console.error(error);
@@ -1165,6 +1258,12 @@ async function verDashboardPedidos() {
   }
 }
 
+
+function alternarDetalleDashboard() {
+  const detalle = $("detalleDashboardPedidos");
+  if (!detalle) return;
+  detalle.style.display = detalle.style.display === "none" ? "block" : "none";
+}
 
 function mostrarDashboardKPIsGlobal(avance, completados, enProceso, pendientes, totalPedidos, totalPedidoGlobal, totalValidadoGlobal) {
   const contenedor = $("dashboardKPIs");
@@ -1237,8 +1336,16 @@ function guardarHistorialLigero() {
   // Historial ahora es Supabase: pedidos + validaciones + cierres.
 }
 
-async function verHistorial() {
+async function verHistorial(buscar = false) {
   try {
+    if (!buscar) {
+      if ($("buscarHistorial")) $("buscarHistorial").value = "";
+      if ($("filtroPeriodo")) $("filtroPeriodo").value = "todos";
+      if ($("historialValidaciones")) $("historialValidaciones").innerHTML = "";
+      mostrarSeccion("pasoHistorial");
+      return;
+    }
+
     const pedidos = await supabaseGet("/pedidos?select=*&order=fecha_creacion.desc");
     const validaciones = await supabaseGet("/validaciones?select=*");
 
@@ -2006,6 +2113,7 @@ async function exportarBaseDatosExcel() {
         Cantidad: numeroExcel(v.cantidad),
         Usuario: v.usuario || "",
         "Fecha validación": formatearFechaExcel(v.fecha_validacion),
+        "ID etiqueta": v.id_etiqueta || "",
         "ID validación": v.id || "",
         "Evidencias": evs.length,
         "Archivos evidencia": evs.join(" | ")
