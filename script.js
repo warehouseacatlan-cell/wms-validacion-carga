@@ -1206,19 +1206,15 @@ async function verDashboardPedidos() {
       else if (estatus === "EN PROCESO") enProceso++;
       else pendientes++;
 
-      html += `
-        <div class="linea-avance">
-          <b>Pedido:</b> ${escaparHTML(pedido)}<br>
-          <b>Cliente:</b> ${escaparHTML(cliente)}<br>
-          <b>Total pedido:</b> ${totalPedido}<br>
-          <b>Total validado:</b> ${totalValidado}<br>
-          <b>Pendiente:</b> ${pendiente}<br>
-          <b>Avance:</b> ${avance}%<br>
-          <b>Estatus:</b> ${estatus}<br>
-          <button onclick="cargarPedidoDesdeDashboard('${escaparAtributo(pedido)}')">Abrir pedido</button>
-          <button onclick="generarPDFDesdePedido('${escaparAtributo(pedido)}')">PDF</button>
-        </div>
-      `;
+      html += crearDetallePedidoDashboardHTML({
+        pedido,
+        cliente,
+        totalPedido,
+        totalValidado,
+        pendiente,
+        avance,
+        estatus
+      });
     });
 
     const avanceGlobal = totalPedidoGlobal > 0
@@ -1237,6 +1233,14 @@ async function verDashboardPedidos() {
       ? Math.round((pendientes / pedidosUnicos.length) * 100)
       : 0;
 
+    window.dashboardPedidosDetalleHTML = html;
+    window.dashboardPedidosStats = {
+      avance: { porcentaje: avanceGlobal, totalPedidos: pedidosUnicos.length, totalPedidoGlobal, totalValidadoGlobal },
+      completados: { porcentaje: porcentajeCompletados, total: completados },
+      enProceso: { porcentaje: porcentajeEnProceso, total: enProceso },
+      pendientes: { porcentaje: porcentajePendientes, total: pendientes }
+    };
+
     mostrarDashboardKPIsGlobal(
       avanceGlobal,
       porcentajeCompletados,
@@ -1247,10 +1251,7 @@ async function verDashboardPedidos() {
       totalValidadoGlobal
     );
 
-    $("dashboardPedidos").innerHTML = `
-      <button class="boton-secundario" onclick="alternarDetalleDashboard()">Ver detalle de pedidos</button>
-      <div id="detalleDashboardPedidos" style="display:none;">${html}</div>
-    `;
+    $("dashboardPedidos").innerHTML = `<div id="infoDashboardGrafico" class="dashboard-info" style="display:none;"></div>`;
     mostrarSeccion("pasoDashboard");
   } catch (error) {
     console.error(error);
@@ -1271,21 +1272,18 @@ function mostrarDashboardKPIsGlobal(avance, completados, enProceso, pendientes, 
 
   contenedor.innerHTML = `
     <div class="dashboard-gauges">
-      ${crearGaugeHTML("Avance general", avance, `${totalValidadoGlobal} / ${totalPedidoGlobal}`)}
-      ${crearGaugeHTML("Pedidos completos", completados, `${completados}%`)}
-      ${crearGaugeHTML("En proceso", enProceso, `${enProceso}%`)}
-      ${crearGaugeHTML("Pendientes", pendientes, `${pendientes}%`)}
-    </div>
-    <div class="dashboard-mini-resumen">
-      Pedidos: <b>${totalPedidos}</b> | Pedido total: <b>${totalPedidoGlobal}</b> | Validado: <b>${totalValidadoGlobal}</b>
+      ${crearGaugeHTML("Avance general", avance, `${totalValidadoGlobal} / ${totalPedidoGlobal}`, "avance")}
+      ${crearGaugeHTML("Pedidos completos", completados, `${completados}%`, "completados")}
+      ${crearGaugeHTML("En proceso", enProceso, `${enProceso}%`, "enProceso")}
+      ${crearGaugeHTML("Pendientes", pendientes, `${pendientes}%`, "pendientes")}
     </div>
   `;
 }
 
-function crearGaugeHTML(titulo, porcentaje, subtitulo) {
+function crearGaugeHTML(titulo, porcentaje, subtitulo, tipo) {
   const valor = Math.max(0, Math.min(100, Number(porcentaje) || 0));
   return `
-    <div class="gauge-card">
+    <button type="button" class="gauge-card gauge-click" onclick="mostrarInfoDashboardGrafico('${escaparAtributo(tipo)}')">
       <div class="gauge" style="--valor:${valor}">
         <div class="gauge-centro">
           <span>${valor}%</span>
@@ -1293,7 +1291,57 @@ function crearGaugeHTML(titulo, porcentaje, subtitulo) {
       </div>
       <div class="gauge-titulo">${escaparHTML(titulo)}</div>
       <div class="gauge-subtitulo">${escaparHTML(subtitulo || "")}</div>
+    </button>
+  `;
+}
+
+function crearDetallePedidoDashboardHTML(item) {
+  return `
+    <div class="linea-avance">
+      <b>Pedido:</b> ${escaparHTML(item.pedido)}<br>
+      <b>Cliente:</b> ${escaparHTML(item.cliente)}<br>
+      <b>Total pedido:</b> ${item.totalPedido}<br>
+      <b>Total validado:</b> ${item.totalValidado}<br>
+      <b>Pendiente:</b> ${item.pendiente}<br>
+      <b>Avance:</b> ${item.avance}%<br>
+      <b>Estatus:</b> ${escaparHTML(item.estatus)}<br>
+      <button onclick="cargarPedidoDesdeDashboard('${escaparAtributo(item.pedido)}')">Abrir pedido</button>
+      <button onclick="generarPDFDesdePedido('${escaparAtributo(item.pedido)}')">PDF</button>
     </div>
+  `;
+}
+
+function mostrarInfoDashboardGrafico(tipo) {
+  const panel = $("infoDashboardGrafico");
+  if (!panel) return;
+
+  const stats = window.dashboardPedidosStats || {};
+  let titulo = "Detalle";
+  let resumen = "";
+
+  if (tipo === "avance") {
+    const s = stats.avance || {};
+    titulo = "Detalle de avance general";
+    resumen = `Pedido total: <b>${s.totalPedidoGlobal || 0}</b><br>Validado: <b>${s.totalValidadoGlobal || 0}</b><br>Pedidos: <b>${s.totalPedidos || 0}</b><br>Avance: <b>${s.porcentaje || 0}%</b>`;
+  } else if (tipo === "completados") {
+    const s = stats.completados || {};
+    titulo = "Detalle de pedidos completos";
+    resumen = `Pedidos completos: <b>${s.total || 0}</b><br>Porcentaje: <b>${s.porcentaje || 0}%</b>`;
+  } else if (tipo === "enProceso") {
+    const s = stats.enProceso || {};
+    titulo = "Detalle de pedidos en proceso";
+    resumen = `Pedidos en proceso: <b>${s.total || 0}</b><br>Porcentaje: <b>${s.porcentaje || 0}%</b>`;
+  } else if (tipo === "pendientes") {
+    const s = stats.pendientes || {};
+    titulo = "Detalle de pedidos pendientes";
+    resumen = `Pedidos pendientes: <b>${s.total || 0}</b><br>Porcentaje: <b>${s.porcentaje || 0}%</b>`;
+  }
+
+  panel.style.display = "block";
+  panel.innerHTML = `
+    <h4>${titulo}</h4>
+    <p>${resumen}</p>
+    <div>${window.dashboardPedidosDetalleHTML || ""}</div>
   `;
 }
 
