@@ -271,3 +271,30 @@ body.tema-oscuro .ambiente-produccion { background: #0d301e; color: #9ff2c2; }
   .seccion { padding: 22px; }
   .dashboard-gauges { grid-template-columns: repeat(4, minmax(0, 1fr)); }
 }
+
+.gauge-click {
+  width: 100%;
+  border: 1px solid var(--border);
+  color: var(--text);
+  cursor: pointer;
+}
+.gauge-click:hover,
+.gauge-click:focus {
+  transform: translateY(-1px);
+  border-color: var(--primary-2);
+  outline: none;
+}
+.dashboard-info {
+  margin-top: 14px;
+  padding: 14px;
+  border: 1px solid var(--border);
+  border-radius: 16px;
+  background: var(--card-2);
+}
+.dashboard-info h4 {
+  margin: 0 0 8px 0;
+}
+.dashboard-info p {
+  margin: 0 0 12px 0;
+  color: var(--muted);
+}
